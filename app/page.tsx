@@ -1,48 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-
-type Tool = "select" | "table2" | "table4" | "kitchen" | "cashier" | "plant" | "erase";
-type Panel = "build" | "menu" | "staff" | "manual";
-type CellItem = { id: number; type: Exclude<Tool, "select" | "erase">; x: number; y: number; occupied?: boolean };
-type Guest = {
-  id: number;
-  size: number;
-  mood: number;
-  stage: "queue" | "order" | "cook" | "eat" | "pay";
-  progress: number;
-  tableId?: number;
-  dish?: string;
-};
-type Dish = { name: string; icon: string; price: number; cost: number; quality: number; stock: number; demand: number };
-type DaySummary = { revenue: number; guests: number; rating: number; costs: number; profit: number };
-
-const W = 12;
-const H = 8;
-const toolData: Record<Exclude<Tool, "select" | "erase">, { name: string; icon: string; price: number }> = {
-  table2: { name: "双人桌", icon: "▣", price: 1800 },
-  table4: { name: "四人桌", icon: "▦", price: 2800 },
-  kitchen: { name: "料理台", icon: "♨", price: 4500 },
-  cashier: { name: "收银台", icon: "¥", price: 2200 },
-  plant: { name: "绿植", icon: "♣", price: 500 },
-};
-
-const initialItems: CellItem[] = [
-  { id: 1, type: "kitchen", x: 1, y: 1 },
-  { id: 2, type: "kitchen", x: 2, y: 1 },
-  { id: 3, type: "cashier", x: 10, y: 6 },
-  { id: 4, type: "table2", x: 4, y: 2 },
-  { id: 5, type: "table4", x: 7, y: 2 },
-  { id: 6, type: "table2", x: 4, y: 5 },
-  { id: 7, type: "plant", x: 9, y: 1 },
-];
-
-const initialDishes: Dish[] = [
-  { name: "招牌汉堡", icon: "🍔", price: 65, cost: 24, quality: 2, stock: 40, demand: 1.3 },
-  { name: "那不勒斯面", icon: "🍝", price: 58, cost: 21, quality: 2, stock: 32, demand: 1.05 },
-  { name: "炸猪排", icon: "🍛", price: 72, cost: 29, quality: 2, stock: 28, demand: 0.9 },
-  { name: "热咖啡", icon: "☕", price: 18, cost: 5, quality: 2, stock: 60, demand: 1.45 },
-];
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { canRelocate } from "./game/economy";
+import { LOCATION_ORDER, getLocation } from "./game/locations";
+import { createInitialState, loadSave, toolData, writeSave } from "./game/save";
+import {
+  cleanShop,
+  closeDay,
+  createStaff,
+  nextDay,
+  relocate,
+  tick,
+} from "./game/simulation";
+import type {
+  DaySummary,
+  FurnitureType,
+  GameState,
+  GuestStage,
+  LocationId,
+  Panel,
+  TaskKind,
+  Tool,
+} from "./game/types";
+import { H, W } from "./game/types";
 
 function timeLabel(minute: number) {
   const h = Math.floor(minute / 60);
@@ -54,295 +34,365 @@ function cellKey(x: number, y: number) {
   return `${x}-${y}`;
 }
 
+const STAGE_LABEL: Record<GuestStage, string> = {
+  queue: "排队",
+  seating: "入座",
+  order: "点餐",
+  waitingCook: "等菜",
+  waitingServe: "待上",
+  eat: "用餐",
+  pay: "结账",
+  leaving: "离店",
+};
+
+const TASK_LABEL: Record<TaskKind, string> = {
+  seat: "领位",
+  takeOrder: "点餐",
+  deliverOrder: "传菜",
+  cook: "烹饪",
+  serve: "上菜",
+  checkout: "结账",
+};
+
+const UNIFORM_LABEL = {
+  casual: "便装",
+  apron: "围裙",
+  formal: "正装",
+} as const;
+
+function actorStyle(x: number, y: number): CSSProperties {
+  return {
+    left: `${((x + 0.5) / W) * 100}%`,
+    top: `${((y + 0.5) / H) * 100}%`,
+  };
+}
+
 export default function Home() {
   const [panel, setPanel] = useState<Panel>("build");
   const [tool, setTool] = useState<Tool>("select");
-  const [cash, setCash] = useState(50000);
-  const [items, setItems] = useState<CellItem[]>(initialItems);
-  const [dishes, setDishes] = useState<Dish[]>(initialDishes);
-  const [guests, setGuests] = useState<Guest[]>([]);
-  const [minute, setMinute] = useState(11 * 60);
-  const [day, setDay] = useState(1);
-  const [speed, setSpeed] = useState(0);
-  const [served, setServed] = useState(0);
-  const [revenue, setRevenue] = useState(0);
-  const [rating, setRating] = useState(2.8);
-  const [waiters, setWaiters] = useState(2);
-  const [chefs, setChefs] = useState(1);
-  const [wage, setWage] = useState(600);
+  const [game, setGame] = useState<GameState>(() => createInitialState());
   const [summary, setSummary] = useState<DaySummary | null>(null);
-  const [toast, setToast] = useState("先布置餐厅，再按「开始营业」");
-  const idRef = useRef(100);
   const tickRef = useRef(0);
-
-  const tables = useMemo(() => items.filter((i) => i.type === "table2" || i.type === "table4"), [items]);
-  const kitchens = items.filter((i) => i.type === "kitchen").length;
-  const queue = guests.filter((g) => g.stage === "queue").length;
-  const activeGuests = guests.reduce((sum, g) => sum + g.size, 0);
-  const seatCount = tables.reduce((sum, t) => sum + (t.type === "table4" ? 4 : 2), 0);
+  const closingRef = useRef(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem("corner-bistro-save");
-    if (!saved) return;
-    try {
-      const s = JSON.parse(saved);
-      setCash(s.cash ?? 50000);
-      setItems(s.items ?? initialItems);
-      setDishes(s.dishes ?? initialDishes);
-      setDay(s.day ?? 1);
-      setRating(s.rating ?? 2.8);
-      setWaiters(s.waiters ?? 2);
-      setChefs(s.chefs ?? 1);
-      setWage(s.wage ?? 600);
-      setToast("已读取上次的经营记录");
-    } catch {
-      localStorage.removeItem("corner-bistro-save");
-    }
+    const saved = loadSave();
+    if (saved) setGame(saved);
   }, []);
 
   useEffect(() => {
-    if (!speed) return;
+    if (!game.speed || summary) return;
     const timer = window.setInterval(() => {
       tickRef.current += 1;
-      setMinute((m) => {
-        const next = m + 5 * speed;
-        if (next >= 23 * 60) {
-          setSpeed(0);
-          window.setTimeout(closeDay, 0);
-          return 23 * 60;
+      setGame((prev) => {
+        const next = tick(prev, tickRef.current);
+        if (next.minute >= 23 * 60 && !closingRef.current) {
+          closingRef.current = true;
+          window.setTimeout(() => {
+            setGame((current) => {
+              const result = closeDay(current);
+              setSummary(result.summary);
+              return result.state;
+            });
+          }, 0);
         }
         return next;
       });
-
-      if (tickRef.current % Math.max(2, 7 - speed - Math.floor(rating)) === 0) {
-        spawnGuest();
-      }
-      advanceGuests();
     }, 500);
     return () => window.clearInterval(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [speed, rating, tables.length, waiters, chefs, kitchens, dishes]);
+  }, [game.speed, summary]);
 
-  function spawnGuest() {
-    if (!tables.length || !kitchens || guests.length > 14) return;
-    const sizes = [1, 1, 2, 2, 2, 3, 4];
-    const size = sizes[Math.floor(Math.random() * sizes.length)];
-    setGuests((current) => [
-      ...current,
-      { id: idRef.current++, size, mood: 100, stage: "queue", progress: 0 },
-    ]);
-  }
+  const location = getLocation(game.locationId);
+  const tables = useMemo(
+    () => game.items.filter((i) => i.type === "table2" || i.type === "table4"),
+    [game.items],
+  );
+  const kitchens = game.items.filter((i) => i.type === "kitchen").length;
+  const queue = game.guests.filter((g) => g.stage === "queue").length;
+  const activeGuests = game.guests
+    .filter((g) => g.stage !== "queue" && g.stage !== "leaving")
+    .reduce((sum, g) => sum + g.size, 0);
+  const seatCount = tables.reduce((sum, t) => sum + (t.type === "table4" ? 4 : 2), 0);
+  const waiters = game.staff.filter((s) => s.role === "waiter").length;
+  const chefs = game.staff.filter((s) => s.role === "chef").length;
+  const payrollPreview = game.staff.filter((s) => !s.onLeave).reduce((sum, s) => sum + s.wage, 0);
 
-  function chooseDish() {
-    const available = dishes.filter((d) => d.stock > 0);
-    if (!available.length) return undefined;
-    const pool = available.flatMap((d) => Array(Math.max(1, Math.round(d.demand * 4))).fill(d.name));
-    return pool[Math.floor(Math.random() * pool.length)];
-  }
+  const itemMap = useMemo(
+    () => new Map(game.items.map((i) => [cellKey(i.x, i.y), i])),
+    [game.items],
+  );
 
-  function advanceGuests() {
-    setGuests((current) => {
-      const occupied = new Set(current.filter((g) => g.tableId && g.stage !== "queue").map((g) => g.tableId));
-      const next: Guest[] = [];
-      const finished: Guest[] = [];
-
-      for (const guest of current) {
-        let g = { ...guest };
-        if (g.stage === "queue") {
-          const table = tables.find((t) => !occupied.has(t.id) && (t.type === "table4" ? 4 : 2) >= g.size);
-          g.mood -= Math.max(1, 3 - waiters * 0.45);
-          if (table) {
-            g = { ...g, stage: "order", tableId: table.id, progress: 0 };
-            occupied.add(table.id);
-          } else if (g.mood <= 0) {
-            setRating((r) => Math.max(1, r - 0.03));
-            continue;
-          }
-        } else {
-          const rates = {
-            order: 12 + waiters * 5,
-            cook: 5 + chefs * 4 + kitchens * 2,
-            eat: 8,
-            pay: 14 + waiters * 4,
-          };
-          g.progress += rates[g.stage] * (speed || 1);
-          if (g.stage === "order" && g.progress >= 100) {
-            const dish = chooseDish();
-            if (!dish) {
-              g.mood -= 35;
-              g.progress = 65;
-            } else {
-              g.stage = "cook";
-              g.progress = 0;
-              g.dish = dish;
-            }
-          } else if (g.stage === "cook") {
-            g.mood -= Math.max(0.25, 1.8 - chefs * 0.35 - kitchens * 0.15);
-            if (g.progress >= 100) {
-              g.stage = "eat";
-              g.progress = 0;
-              setDishes((ds) => ds.map((d) => (d.name === g.dish ? { ...d, stock: Math.max(0, d.stock - g.size) } : d)));
-            }
-          } else if (g.stage === "eat" && g.progress >= 100) {
-            g.stage = "pay";
-            g.progress = 0;
-          } else if (g.stage === "pay" && g.progress >= 100) {
-            finished.push(g);
-            continue;
-          }
-        }
-        next.push(g);
+  const taskById = useMemo(() => new Map(game.tasks.map((t) => [t.id, t])), [game.tasks]);
+  const taskByGuest = useMemo(() => {
+    const m = new Map<number, (typeof game.tasks)[0]>();
+    for (const t of game.tasks) {
+      if (!m.has(t.guestId) || (t.assigneeId != null && m.get(t.guestId)?.assigneeId == null)) {
+        m.set(t.guestId, t);
       }
+    }
+    return m;
+  }, [game.tasks]);
 
-      if (finished.length) {
-        let earned = 0;
-        let people = 0;
-        let score = 0;
-        for (const g of finished) {
-          const dish = dishes.find((d) => d.name === g.dish);
-          if (!dish) continue;
-          earned += dish.price * g.size;
-          people += g.size;
-          const value = dish.price / Math.max(1, dish.cost);
-          score += Math.max(45, Math.min(100, g.mood + dish.quality * 8 - Math.max(0, value - 3) * 8));
-        }
-        setCash((c) => c + earned);
-        setRevenue((r) => r + earned);
-        setServed((s) => s + people);
-        if (finished.length) setRating((r) => Math.max(1, Math.min(5, r * 0.985 + (score / finished.length / 20) * 0.015)));
-      }
-      return next;
-    });
-  }
-
-  function closeDay() {
-    const payroll = (waiters + chefs) * wage;
-    const ingredient = dishes.reduce((sum, d) => sum + (40 - Math.min(40, d.stock)) * d.cost, 0);
-    const costs = payroll + 900 + ingredient;
-    const profit = revenue - costs;
-    setCash((c) => c - costs);
-    setSummary({ revenue, guests: served, rating, costs, profit });
-    setGuests([]);
-    setToast("今日营业结束，账簿已经结算");
-  }
-
-  function nextDay() {
-    setDay((d) => d + 1);
-    setMinute(11 * 60);
-    setRevenue(0);
-    setServed(0);
-    setGuests([]);
-    setDishes((ds) => ds.map((d) => ({ ...d, stock: Math.max(d.stock, 30) })));
-    setSummary(null);
-    tickRef.current = 0;
-    setToast("新的一天，准备开门迎客");
+  function setSpeed(speed: number) {
+    if (summary) return;
+    setGame((g) => ({ ...g, speed }));
   }
 
   function clickCell(x: number, y: number) {
-    if (speed) {
-      setToast("营业中不能改装，先暂停营业");
+    if (game.speed) {
+      setGame((g) => ({ ...g, toast: "营业中不能改装，先暂停营业" }));
       return;
     }
-    const existing = items.find((i) => i.x === x && i.y === y);
+    const existing = game.items.find((i) => i.x === x && i.y === y);
     if (tool === "erase") {
       if (!existing) return;
       const refund = Math.round(toolData[existing.type].price * 0.4);
-      setItems((all) => all.filter((i) => i.id !== existing.id));
-      setCash((c) => c + refund);
-      setToast(`已拆除${toolData[existing.type].name}，回收 ¥${refund}`);
+      setGame((g) => ({
+        ...g,
+        items: g.items.filter((i) => i.id !== existing.id),
+        cash: g.cash + refund,
+        toast: `已拆除${toolData[existing.type].name}，回收 ¥${refund}`,
+      }));
       return;
     }
     if (tool === "select" || existing) return;
-    const data = toolData[tool];
-    if (cash < data.price) {
-      setToast("资金不足，先多经营几天吧");
+    const data = toolData[tool as FurnitureType];
+    if (game.cash < data.price) {
+      setGame((g) => ({ ...g, toast: "资金不足，先多经营几天吧" }));
       return;
     }
-    setItems((all) => [...all, { id: idRef.current++, type: tool, x, y }]);
-    setCash((c) => c - data.price);
-    setToast(`已购入${data.name}`);
+    setGame((g) => ({
+      ...g,
+      items: [...g.items, { id: g.nextId, type: tool as FurnitureType, x, y }],
+      nextId: g.nextId + 1,
+      cash: g.cash - data.price,
+      toast: `已购入${data.name}`,
+    }));
   }
 
   function updateDish(index: number, key: "price" | "quality", delta: number) {
-    setDishes((ds) =>
-      ds.map((d, i) =>
+    setGame((g) => ({
+      ...g,
+      dishes: g.dishes.map((d, i) =>
         i === index
           ? {
               ...d,
-              [key]: key === "quality" ? Math.max(1, Math.min(3, d.quality + delta)) : Math.max(d.cost + 5, d.price + delta),
+              [key]:
+                key === "quality"
+                  ? Math.max(1, Math.min(3, d.quality + delta))
+                  : Math.max(d.cost + 5, d.price + delta),
             }
           : d,
       ),
-    );
+    }));
   }
 
-  function hire(role: "waiter" | "chef", delta: number) {
-    if (delta > 0 && cash < 1200) {
-      setToast("招聘需要 ¥1,200 手续费");
+  function hire(role: "waiter" | "chef") {
+    if (game.cash < 1200) {
+      setGame((g) => ({ ...g, toast: "招聘需要 ¥1,200 手续费" }));
       return;
     }
-    if (role === "waiter") setWaiters((n) => Math.max(1, Math.min(6, n + delta)));
-    else setChefs((n) => Math.max(1, Math.min(5, n + delta)));
-    if (delta > 0) setCash((c) => c - 1200);
+    const count = game.staff.filter((s) => s.role === role).length;
+    if (role === "waiter" && count >= 6) {
+      setGame((g) => ({ ...g, toast: "服务生已达上限" }));
+      return;
+    }
+    if (role === "chef" && count >= 5) {
+      setGame((g) => ({ ...g, toast: "厨师已达上限" }));
+      return;
+    }
+    setGame((g) => {
+      const staff = createStaff(role, g.nextId, role === "chef" ? g.baseWage + 50 : g.baseWage, g.items);
+      return {
+        ...g,
+        staff: [...g.staff, staff],
+        nextId: g.nextId + 1,
+        cash: g.cash - 1200,
+        toast: `已招聘${staff.name}`,
+      };
+    });
+  }
+
+  function fireStaff(id: number) {
+    setGame((g) => {
+      const target = g.staff.find((s) => s.id === id);
+      if (!target) return g;
+      const sameRole = g.staff.filter((s) => s.role === target.role);
+      if (sameRole.length <= 1) {
+        return { ...g, toast: "至少保留一位同职位员工" };
+      }
+      return {
+        ...g,
+        staff: g.staff.filter((s) => s.id !== id),
+        tasks: g.tasks.map((t) => (t.assigneeId === id ? { ...t, assigneeId: undefined, progress: 0 } : t)),
+        toast: `${target.name}已被解雇`,
+      };
+    });
+  }
+
+  function toggleLeave(id: number) {
+    setGame((g) => {
+      const worker = g.staff.find((s) => s.id === id);
+      if (!worker) return g;
+      const goingOnLeave = !worker.onLeave;
+      return {
+        ...g,
+        staff: g.staff.map((s) => {
+          if (s.id !== id) return s;
+          if (goingOnLeave) return { ...s, onLeave: true, taskId: undefined, path: [] };
+          return { ...s, onLeave: false };
+        }),
+        tasks: goingOnLeave
+          ? g.tasks.map((t) => (t.assigneeId === id ? { ...t, assigneeId: undefined, progress: 0 } : t))
+          : g.tasks,
+        toast: goingOnLeave ? `${worker.name}开始休假恢复心情` : `${worker.name}已结束休假`,
+      };
+    });
+  }
+
+  function setStaffWage(id: number, wage: number) {
+    setGame((g) => ({
+      ...g,
+      staff: g.staff.map((s) => (s.id === id ? { ...s, wage } : s)),
+    }));
+  }
+
+  function setBaseWage(wage: number) {
+    setGame((g) => ({
+      ...g,
+      baseWage: wage,
+      staff: g.staff.map((s) => ({
+        ...s,
+        wage: s.role === "chef" ? wage + 50 : wage,
+      })),
+    }));
+  }
+
+  function patchAtmosphere<K extends keyof GameState["atmosphere"]>(key: K, value: GameState["atmosphere"][K]) {
+    setGame((g) => ({
+      ...g,
+      atmosphere: { ...g.atmosphere, [key]: value },
+    }));
+  }
+
+  function tryRelocate(targetId: LocationId) {
+    const check = canRelocate(game, targetId);
+    if (!check.ok) {
+      setGame((g) => ({ ...g, toast: check.reason }));
+      return;
+    }
+    if (game.speed) {
+      setGame((g) => ({ ...g, toast: "请先暂停营业再迁店" }));
+      return;
+    }
+    setGame((g) => relocate(g, targetId));
   }
 
   function saveGame() {
-    localStorage.setItem("corner-bistro-save", JSON.stringify({ cash, items, dishes, day, rating, waiters, chefs, wage }));
-    setToast("经营记录已保存在这台设备");
+    writeSave(game);
+    setGame((g) => ({ ...g, toast: "经营记录已保存在这台设备" }));
   }
 
-  const itemMap = new Map(items.map((i) => [cellKey(i.x, i.y), i]));
-  const tableGuests = new Map(guests.filter((g) => g.tableId).map((g) => [g.tableId!, g]));
+  function handleNextDay() {
+    closingRef.current = false;
+    tickRef.current = 0;
+    setSummary(null);
+    setGame((g) => nextDay(g));
+  }
 
   return (
     <main className="game-shell">
       <header className="topbar">
         <div className="brand">
           <span className="brand-mark">街</span>
-          <div><strong>街角食堂</strong><small>经营模拟 · 1998 MODE</small></div>
+          <div>
+            <strong>街角食堂</strong>
+            <small>经营模拟 · 1998 MODE</small>
+          </div>
         </div>
-        <div className="datebox"><small>美食历 第一年</small><b>1月 {day}日</b></div>
-        <div className="clock"><span>{timeLabel(minute)}</span><small>{speed ? "营业中" : "暂停"}</small></div>
-        <div className="stat"><small>总资金</small><b>¥ {cash.toLocaleString()}</b></div>
-        <div className="stat"><small>今日营业额</small><b>¥ {revenue.toLocaleString()}</b></div>
-        <div className="stat compact"><small>客人数</small><b>{served}人</b></div>
-        <div className="stars" aria-label={`餐厅评价 ${rating.toFixed(1)} 星`}>
-          <small>餐厅评价</small><b>{"★".repeat(Math.round(rating))}<i>{"☆".repeat(5 - Math.round(rating))}</i></b>
+        <div className="datebox">
+          <small>美食历 第一年</small>
+          <b>
+            1月 {game.day}日 · {game.stars}★
+          </b>
         </div>
-        <button className="save" onClick={saveGame}>保存</button>
+        <div className="clock">
+          <span>{timeLabel(game.minute)}</span>
+          <small>{game.speed ? "营业中" : "暂停"}</small>
+        </div>
+        <div className="stat">
+          <small>总资金</small>
+          <b>¥ {game.cash.toLocaleString()}</b>
+        </div>
+        <div className="stat">
+          <small>今日营业额</small>
+          <b>¥ {game.revenue.toLocaleString()}</b>
+        </div>
+        <div className="stat compact">
+          <small>客人数</small>
+          <b>{game.served}人</b>
+        </div>
+        <div className="stars" aria-label={`餐厅评价 ${game.rating.toFixed(1)} 星`}>
+          <small>餐厅评价</small>
+          <b>
+            {"★".repeat(Math.round(game.rating))}
+            <i>{"☆".repeat(5 - Math.round(game.rating))}</i>
+          </b>
+        </div>
+        <button className="save" onClick={saveGame}>
+          保存
+        </button>
       </header>
 
       <section className="workspace">
         <aside className="sidebar">
           <nav>
-            {([
-              ["build", "▦", "布置"],
-              ["menu", "▤", "菜单"],
-              ["staff", "♟", "员工"],
-              ["manual", "?", "规则"],
-            ] as [Panel, string, string][]).map(([id, icon, label]) => (
+            {(
+              [
+                ["build", "▦", "布置"],
+                ["menu", "▤", "菜单"],
+                ["staff", "♟", "员工"],
+                ["ambiance", "♨", "氛围"],
+                ["manual", "?", "规则"],
+              ] as [Panel, string, string][]
+            ).map(([id, icon, label]) => (
               <button key={id} className={panel === id ? "active" : ""} onClick={() => setPanel(id)}>
-                <span>{icon}</span>{label}
+                <span>{icon}</span>
+                {label}
               </button>
             ))}
           </nav>
-          <div className="side-foot"><span>版本 0.1</span><span>忠于经典规则的原创原型</span></div>
+          <div className="side-foot">
+            <span>版本 0.2</span>
+            <span>忠于经典规则的原创原型</span>
+          </div>
         </aside>
 
         <section className="restaurant-wrap">
           <div className="street">
-            <div className="sign">木场 · 10坪</div>
-            <div className="passers">{["♙", "♟", "♙", "♟"].map((p, i) => <span key={i} style={{ animationDelay: `${i * -2.1}s` }}>{p}</span>)}</div>
+            <div className="sign">
+              {location.name} · {location.sizeLabel}
+            </div>
+            <div className="passers">
+              {["♙", "♟", "♙", "♟"].map((p, i) => (
+                <span key={i} style={{ animationDelay: `${i * -2.1}s` }}>
+                  {p}
+                </span>
+              ))}
+            </div>
           </div>
           <div className="restaurant">
-            <div className="wall back"><span>今日推荐</span><span className="window">▥　▥</span><span>营业中</span></div>
+            <div className="wall back">
+              <span>今日推荐</span>
+              <span className="window">▥　▥</span>
+              <span>营业中</span>
+            </div>
             <div className="wall left" />
             <div className="grid" style={{ gridTemplateColumns: `repeat(${W}, 1fr)` }}>
               {Array.from({ length: W * H }, (_, n) => {
                 const x = n % W;
                 const y = Math.floor(n / W);
                 const item = itemMap.get(cellKey(x, y));
-                const guest = item && tableGuests.get(item.id);
                 return (
                   <button
                     key={n}
@@ -350,84 +400,381 @@ export default function Home() {
                     onClick={() => clickCell(x, y)}
                     aria-label={`${x + 1},${y + 1}${item ? ` ${toolData[item.type].name}` : " 空地"}`}
                   >
-                    {item && <span className="furniture"><i>{toolData[item.type].icon}</i><em>{toolData[item.type].name}</em></span>}
-                    {guest && (
-                      <span className={`guest-stage mood-${guest.mood < 45 ? "bad" : "good"}`}>
-                        <b>{guest.size}人</b><i style={{ width: `${guest.progress}%` }} />
-                        <em>{guest.stage === "order" ? "点餐" : guest.stage === "cook" ? "等菜" : guest.stage === "eat" ? "用餐" : "结账"}</em>
+                    {item && (
+                      <span className="furniture">
+                        <i>{toolData[item.type].icon}</i>
+                        <em>{toolData[item.type].name}</em>
                       </span>
                     )}
                   </button>
                 );
               })}
+
+              {game.guests.map((guest) => {
+                const task = taskByGuest.get(guest.id);
+                return (
+                  <div
+                    key={`g-${guest.id}`}
+                    className={`actor guest mood-${guest.mood < 45 ? "bad" : "good"}`}
+                    style={actorStyle(guest.x, guest.y)}
+                    title={`${STAGE_LABEL[guest.stage]} · ${guest.size}人`}
+                  >
+                    <span className="actor-sprite">♟</span>
+                    <span className="actor-meta">
+                      {guest.size}
+                      {guest.regularId ? "★" : ""}
+                    </span>
+                    {(task || guest.stage === "eat") && (
+                      <span className="task-bubble">
+                        {guest.stage === "eat" ? "用餐" : task ? TASK_LABEL[task.kind] : STAGE_LABEL[guest.stage]}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+
+              {game.staff
+                .filter((s) => !s.onLeave)
+                .map((staff) => {
+                  const task = staff.taskId != null ? taskById.get(staff.taskId) : undefined;
+                  return (
+                    <div
+                      key={`s-${staff.id}`}
+                      className={`actor staff role-${staff.role} ${task ? "busy" : "idle"}`}
+                      style={actorStyle(staff.x, staff.y)}
+                      title={`${staff.name} · ${staff.role === "chef" ? "厨师" : "服务生"}`}
+                    >
+                      <span className="actor-sprite">{staff.role === "chef" ? "♨" : "♙"}</span>
+                      {task && <span className="task-bubble">{TASK_LABEL[task.kind]}</span>}
+                    </div>
+                  );
+                })}
             </div>
-            <div className="entrance">入口 <span>▼</span></div>
+            <div className="entrance">
+              入口 <span>▼</span>
+            </div>
             <div className="queue">
-              {guests.filter((g) => g.stage === "queue").slice(0, 5).map((g) => <span key={g.id}>♟<i>{g.size}</i></span>)}
+              {game.guests
+                .filter((g) => g.stage === "queue")
+                .slice(0, 5)
+                .map((g) => (
+                  <span key={g.id}>
+                    ♟<i>{g.size}</i>
+                  </span>
+                ))}
               {queue > 5 && <b>+{queue - 5}</b>}
             </div>
           </div>
           <div className="status-strip">
-            <span>座位 <b>{seatCount}</b></span>
-            <span>店内顾客 <b>{activeGuests}</b></span>
-            <span>排队 <b className={queue > 3 ? "danger" : ""}>{queue}</b></span>
-            <span>料理台 <b>{kitchens}</b></span>
-            <p>{toast}</p>
+            <span>
+              座位 <b>{seatCount}</b>
+            </span>
+            <span>
+              店内顾客 <b>{activeGuests}</b>
+            </span>
+            <span>
+              排队 <b className={queue > 3 ? "danger" : ""}>{queue}</b>
+            </span>
+            <span>
+              料理台 <b>{kitchens}</b>
+            </span>
+            <span>
+              员工 <b>
+                {waiters}服/{chefs}厨
+              </b>
+            </span>
+            <p>{game.toast}</p>
           </div>
         </section>
 
         <aside className="control-panel">
           {panel === "build" && (
             <>
-              <div className="panel-title"><span>01</span><div><h2>店内布置</h2><p>选择设备，再点击地板放置</p></div></div>
+              <div className="panel-title">
+                <span>01</span>
+                <div>
+                  <h2>店内布置</h2>
+                  <p>选择设备，再点击地板放置</p>
+                </div>
+              </div>
               <div className="tool-grid">
-                <button className={tool === "select" ? "selected" : ""} onClick={() => setTool("select")}><i>↖</i><b>查看</b><small>不改动</small></button>
-                {(Object.keys(toolData) as (keyof typeof toolData)[]).map((key) => (
+                <button className={tool === "select" ? "selected" : ""} onClick={() => setTool("select")}>
+                  <i>↖</i>
+                  <b>查看</b>
+                  <small>不改动</small>
+                </button>
+                {(Object.keys(toolData) as FurnitureType[]).map((key) => (
                   <button key={key} className={tool === key ? "selected" : ""} onClick={() => setTool(key)}>
-                    <i>{toolData[key].icon}</i><b>{toolData[key].name}</b><small>¥{toolData[key].price.toLocaleString()}</small>
+                    <i>{toolData[key].icon}</i>
+                    <b>{toolData[key].name}</b>
+                    <small>¥{toolData[key].price.toLocaleString()}</small>
                   </button>
                 ))}
-                <button className={`erase-tool ${tool === "erase" ? "selected" : ""}`} onClick={() => setTool("erase")}><i>×</i><b>拆除</b><small>返还40%</small></button>
+                <button className={`erase-tool ${tool === "erase" ? "selected" : ""}`} onClick={() => setTool("erase")}>
+                  <i>×</i>
+                  <b>拆除</b>
+                  <small>返还40%</small>
+                </button>
               </div>
-              <div className="tip-card"><b>布局诀窍</b><p>不同桌型决定能接待的客群。厨房不足会让等菜时间变长；当客人失去耐心，评价会下降。</p></div>
+              <div className="tip-card">
+                <b>布局诀窍</b>
+                <p>不同桌型决定能接待的客群。厨房不足会让等菜时间变长；当客人失去耐心，评价会下降。</p>
+              </div>
             </>
           )}
 
           {panel === "menu" && (
             <>
-              <div className="panel-title"><span>02</span><div><h2>菜单与食材</h2><p>价格、品质与库存相互制衡</p></div></div>
+              <div className="panel-title">
+                <span>02</span>
+                <div>
+                  <h2>菜单与食材</h2>
+                  <p>价格、品质与库存相互制衡</p>
+                </div>
+              </div>
               <div className="dish-list">
-                {dishes.map((dish, i) => (
+                {game.dishes.map((dish, i) => (
                   <article key={dish.name}>
-                    <div className="dish-head"><i>{dish.icon}</i><div><b>{dish.name}</b><small>成本 ¥{dish.cost} · 库存 {dish.stock}</small></div></div>
-                    <label>售价 <span><button onClick={() => updateDish(i, "price", -5)}>−</button><b>¥{dish.price}</b><button onClick={() => updateDish(i, "price", 5)}>＋</button></span></label>
-                    <label>材料等级 <span><button onClick={() => updateDish(i, "quality", -1)}>−</button><b>{"◆".repeat(dish.quality)}{"◇".repeat(3 - dish.quality)}</b><button onClick={() => updateDish(i, "quality", 1)}>＋</button></span></label>
+                    <div className="dish-head">
+                      <i>{dish.icon}</i>
+                      <div>
+                        <b>{dish.name}</b>
+                        <small>
+                          成本 ¥{dish.cost} · 库存 {dish.stock}
+                        </small>
+                      </div>
+                    </div>
+                    <label>
+                      售价{" "}
+                      <span>
+                        <button onClick={() => updateDish(i, "price", -5)}>−</button>
+                        <b>¥{dish.price}</b>
+                        <button onClick={() => updateDish(i, "price", 5)}>＋</button>
+                      </span>
+                    </label>
+                    <label>
+                      材料等级{" "}
+                      <span>
+                        <button onClick={() => updateDish(i, "quality", -1)}>−</button>
+                        <b>
+                          {"◆".repeat(dish.quality)}
+                          {"◇".repeat(3 - dish.quality)}
+                        </b>
+                        <button onClick={() => updateDish(i, "quality", 1)}>＋</button>
+                      </span>
+                    </label>
                   </article>
                 ))}
               </div>
-              <div className="tip-card"><b>经典规则</b><p>便宜、份量足、材料好，会提高评价；但食材成本也会在打烊时结算。</p></div>
+              <div className="tip-card">
+                <b>经典规则</b>
+                <p>便宜、份量足、材料好，会提高评价；但食材成本也会在打烊时结算。</p>
+              </div>
             </>
           )}
 
           {panel === "staff" && (
             <>
-              <div className="panel-title"><span>03</span><div><h2>员工管理</h2><p>速度决定客人的耐心</p></div></div>
-              <div className="staff-card"><i>♟</i><div><b>服务生</b><small>接待、点餐、结账</small></div><span><button onClick={() => hire("waiter", -1)}>−</button><strong>{waiters}</strong><button onClick={() => hire("waiter", 1)}>＋</button></span></div>
-              <div className="staff-card"><i>♨</i><div><b>厨师</b><small>缩短料理等待时间</small></div><span><button onClick={() => hire("chef", -1)}>−</button><strong>{chefs}</strong><button onClick={() => hire("chef", 1)}>＋</button></span></div>
-              <div className="wage-box"><label>每日工资／人 <b>¥{wage}</b></label><input type="range" min="450" max="1200" step="50" value={wage} onChange={(e) => setWage(Number(e.target.value))}/><small>本原型中，高工资暂不影响效率；正式版将加入心情、经验与离职。</small></div>
-              <div className="cost-preview"><span>预计每日工资</span><b>¥{((waiters + chefs) * wage).toLocaleString()}</b></div>
+              <div className="panel-title">
+                <span>03</span>
+                <div>
+                  <h2>员工管理</h2>
+                  <p>经验、工资与心情决定速度</p>
+                </div>
+              </div>
+              <div className="hire-row">
+                <button onClick={() => hire("waiter")}>招聘服务生 · ¥1,200</button>
+                <button onClick={() => hire("chef")}>招聘厨师 · ¥1,200</button>
+              </div>
+              <div className="wage-box">
+                <label>
+                  基准日薪 <b>¥{game.baseWage}</b>
+                </label>
+                <input
+                  type="range"
+                  min="450"
+                  max="1200"
+                  step="50"
+                  value={game.baseWage}
+                  onChange={(e) => setBaseWage(Number(e.target.value))}
+                />
+                <small>调整基准会同步服务生/厨师日薪（厨师 +50）。过低会降心情并可能离职。</small>
+              </div>
+              <div className="staff-list">
+                {game.staff.map((s) => (
+                  <article key={s.id} className={`staff-card detailed ${s.onLeave ? "on-leave" : ""}`}>
+                    <i>{s.role === "chef" ? "♨" : "♟"}</i>
+                    <div>
+                      <b>
+                        {s.name}
+                        {s.onLeave ? " · 休假中" : ""}
+                      </b>
+                      <small>
+                        {s.role === "chef" ? "厨师" : "服务生"} · 经验 {Math.floor(s.exp)} · 心情{" "}
+                        {Math.round(s.mood)}
+                      </small>
+                      <label className="wage-inline">
+                        日薪
+                        <input
+                          type="range"
+                          min="400"
+                          max="1400"
+                          step="25"
+                          value={s.wage}
+                          onChange={(e) => setStaffWage(s.id, Number(e.target.value))}
+                        />
+                        <em>¥{s.wage}</em>
+                      </label>
+                    </div>
+                    <div className="staff-actions">
+                      <button onClick={() => toggleLeave(s.id)}>{s.onLeave ? "复工" : "休假"}</button>
+                      <button className="danger" onClick={() => fireStaff(s.id)}>
+                        解雇
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+              <div className="cost-preview">
+                <span>预计每日工资</span>
+                <b>¥{payrollPreview.toLocaleString()}</b>
+              </div>
+            </>
+          )}
+
+          {panel === "ambiance" && (
+            <>
+              <div className="panel-title">
+                <span>04</span>
+                <div>
+                  <h2>店铺氛围</h2>
+                  <p>温度、音乐、制服与清洁影响耐心</p>
+                </div>
+              </div>
+              <div className="ambiance-panel">
+                <label>
+                  店内温度 <b>{game.atmosphere.temperature}°</b>
+                  <input
+                    type="range"
+                    min="30"
+                    max="90"
+                    value={game.atmosphere.temperature}
+                    onChange={(e) => patchAtmosphere("temperature", Number(e.target.value))}
+                  />
+                  <small>约 50–74° 最舒适</small>
+                </label>
+                <label className="toggle-row">
+                  <span>背景音乐</span>
+                  <button
+                    className={game.atmosphere.music ? "on" : ""}
+                    onClick={() => patchAtmosphere("music", !game.atmosphere.music)}
+                  >
+                    {game.atmosphere.music ? "开" : "关"}
+                  </button>
+                </label>
+                <label>
+                  制服风格
+                  <div className="chip-row">
+                    {(["casual", "apron", "formal"] as const).map((u) => (
+                      <button
+                        key={u}
+                        className={game.atmosphere.uniform === u ? "on" : ""}
+                        onClick={() => patchAtmosphere("uniform", u)}
+                      >
+                        {UNIFORM_LABEL[u]}
+                      </button>
+                    ))}
+                  </div>
+                </label>
+                <div className="clean-meter">
+                  <span>
+                    清洁度 <b>{Math.round(game.atmosphere.cleanliness)}</b>
+                  </span>
+                  <i style={{ width: `${game.atmosphere.cleanliness}%` }} />
+                  <button onClick={() => setGame((g) => cleanShop(g))}>打扫 · ¥200</button>
+                </div>
+                <label className="toggle-row">
+                  <span>街头广告（日费 ¥650）</span>
+                  <button
+                    className={game.atmosphere.ads ? "on" : ""}
+                    onClick={() => patchAtmosphere("ads", !game.atmosphere.ads)}
+                  >
+                    {game.atmosphere.ads ? "投放中" : "未投放"}
+                  </button>
+                </label>
+              </div>
+
+              <div className="panel-title relocate-title">
+                <span>★</span>
+                <div>
+                  <h2>迁店</h2>
+                  <p>
+                    当前 {location.name} · 星级 {game.stars}★
+                  </p>
+                </div>
+              </div>
+              <div className="relocate-list">
+                {LOCATION_ORDER.map((id) => {
+                  const loc = getLocation(id);
+                  const here = id === game.locationId;
+                  const check = canRelocate(game, id);
+                  return (
+                    <article key={id} className={here ? "here" : ""}>
+                      <div>
+                        <b>
+                          {loc.name} · {loc.sizeLabel}
+                        </b>
+                        <small>
+                          租金 ¥{loc.rent}/日 · 人流 ×{loc.footfall}
+                          {!here && ` · 需 ${loc.relocateStars}★ / ¥${loc.relocateCash.toLocaleString()}`}
+                        </small>
+                      </div>
+                      {here ? (
+                        <em>营业中</em>
+                      ) : (
+                        <button disabled={!check.ok} onClick={() => tryRelocate(id)} title={check.reason || "迁店"}>
+                          {check.ok ? "迁入" : check.reason}
+                        </button>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
             </>
           )}
 
           {panel === "manual" && (
             <>
-              <div className="panel-title"><span>?</span><div><h2>规则手册</h2><p>根据旧说明与攻略还原</p></div></div>
+              <div className="panel-title">
+                <span>?</span>
+                <div>
+                  <h2>规则手册</h2>
+                  <p>根据旧说明与攻略还原</p>
+                </div>
+              </div>
               <div className="manual">
-                <section><b>经营目标</b><p>从木场的小店起步，通过满意度、营业额与利润提升星级。</p></section>
-                <section><b>顾客循环</b><p>进店 → 分桌 → 点餐 → 等待料理 → 用餐 → 结账 → 给出评价。</p></section>
-                <section><b>评价逻辑</b><p>价格、材料、等待时间和是否生气离店共同影响评价；老顾客会保留印象。</p></section>
-                <section><b>地点差异</b><p>木场租金低但人流少；学生区看重价格；银座、六本木更看重高级感。</p></section>
-                <section><b>当前原型范围</b><p>已实现布置、桌型、菜单、库存、员工速度、排队、日结与本地存档。地点迁移、制服、温度、广告和员工经验将在后续加入。</p></section>
+                <section>
+                  <b>经营目标</b>
+                  <p>从木场的小店起步，通过满意度、营业额与利润提升星级，再迁往更热闹的街区。</p>
+                </section>
+                <section>
+                  <b>顾客循环</b>
+                  <p>排队 → 服务生领位 → 点餐 → 厨房制作 → 上菜 → 用餐 → 结账 → 评价离店。</p>
+                </section>
+                <section>
+                  <b>评价逻辑</b>
+                  <p>价格、材料、等待时间、口味匹配与预算共同影响评价；老顾客会保留印象。</p>
+                </section>
+                <section>
+                  <b>地点差异</b>
+                  <p>
+                    当前：{location.name}。木场租金低但人流少；高田马场看重性价比；神田偏正式高消费。
+                  </p>
+                </section>
+                <section>
+                  <b>氛围与人事</b>
+                  <p>温度/音乐/清洁/广告影响耐心与客流；工资过低会降心情，连续低落可能离职。</p>
+                </section>
               </div>
             </>
           )}
@@ -435,30 +782,69 @@ export default function Home() {
       </section>
 
       <footer className="bottombar">
-        <div className="day-goal"><small>今日建议</small><b>接待 20 位客人且不让排队超过 4 组</b></div>
-        <div className="speed-controls">
-          <button className={speed === 0 ? "on" : ""} onClick={() => setSpeed(0)}>Ⅱ</button>
-          <button className={speed === 1 ? "on" : ""} onClick={() => setSpeed(1)}>▶</button>
-          <button className={speed === 3 ? "on" : ""} onClick={() => setSpeed(3)}>▶▶</button>
+        <div className="day-goal">
+          <small>今日建议</small>
+          <b>接待 20 位客人且不让排队超过 4 组 · 保持店面整洁</b>
         </div>
-        <button className="open-button" onClick={() => setSpeed(speed ? 0 : 1)} disabled={minute >= 23 * 60}>
-          <span>{speed ? "暂停营业" : minute >= 23 * 60 ? "今日已打烊" : "开始营业"}</span><small>{timeLabel(minute)} — 23:00</small>
+        <div className="speed-controls">
+          <button className={game.speed === 0 ? "on" : ""} onClick={() => setSpeed(0)}>
+            Ⅱ
+          </button>
+          <button className={game.speed === 1 ? "on" : ""} onClick={() => setSpeed(1)}>
+            ▶
+          </button>
+          <button className={game.speed === 3 ? "on" : ""} onClick={() => setSpeed(3)}>
+            ▶▶
+          </button>
+        </div>
+        <button
+          className="open-button"
+          onClick={() => setSpeed(game.speed ? 0 : 1)}
+          disabled={game.minute >= 23 * 60 || !!summary}
+        >
+          <span>{game.speed ? "暂停营业" : game.minute >= 23 * 60 ? "今日已打烊" : "开始营业"}</span>
+          <small>
+            {timeLabel(game.minute)} — 23:00
+          </small>
         </button>
       </footer>
 
       {summary && (
         <div className="modal-backdrop">
           <section className="ledger">
-            <div className="ledger-top"><small>DAILY REPORT</small><h2>第 {day} 日营业账簿</h2><p>今天的店铺表现已经汇总</p></div>
-            <div className="ledger-grid">
-              <span>接待客人<b>{summary.guests} 人</b></span>
-              <span>餐厅评价<b>{summary.rating.toFixed(1)} ★</b></span>
-              <span>营业收入<b>¥{summary.revenue.toLocaleString()}</b></span>
-              <span>工资·租金·食材<b>−¥{summary.costs.toLocaleString()}</b></span>
+            <div className="ledger-top">
+              <small>DAILY REPORT</small>
+              <h2>第 {game.day} 日营业账簿</h2>
+              <p>今天的店铺表现已经汇总 · 星级 {summary.stars}★</p>
             </div>
-            <div className={`profit ${summary.profit < 0 ? "loss" : ""}`}><small>今日纯利润</small><b>{summary.profit >= 0 ? "+" : "−"} ¥{Math.abs(summary.profit).toLocaleString()}</b></div>
-            <p className="ledger-note">{summary.guests < 15 ? "客流还不够。试试增加桌位，并维持合理价格。" : summary.rating < 3 ? "客人等得有点久，增聘员工或增加料理台吧。" : "口碑正在传开，明天会有更多客人慕名而来。"}</p>
-            <button onClick={nextDay}>进入第 {day + 1} 日</button>
+            <div className="ledger-grid">
+              <span>
+                接待客人<b>{summary.guests} 人</b>
+              </span>
+              <span>
+                餐厅评价<b>{summary.rating.toFixed(1)} ★</b>
+              </span>
+              <span>
+                营业收入<b>¥{summary.revenue.toLocaleString()}</b>
+              </span>
+              <span>
+                工资·租金·食材·广告<b>−¥{summary.costs.toLocaleString()}</b>
+              </span>
+            </div>
+            <div className={`profit ${summary.profit < 0 ? "loss" : ""}`}>
+              <small>今日纯利润</small>
+              <b>
+                {summary.profit >= 0 ? "+" : "−"} ¥{Math.abs(summary.profit).toLocaleString()}
+              </b>
+            </div>
+            <p className="ledger-note">
+              {summary.guests < 15
+                ? "客流还不够。试试增加桌位、投放广告，并维持合理价格。"
+                : summary.rating < 3
+                  ? "客人等得有点久，增聘员工、打扫店面或增加料理台吧。"
+                  : "口碑正在传开，明天会有更多客人慕名而来。"}
+            </p>
+            <button onClick={handleNextDay}>进入第 {game.day + 1} 日</button>
           </section>
         </div>
       )}
