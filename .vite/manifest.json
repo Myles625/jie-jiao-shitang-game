@@ -15,7 +15,7 @@
     "name": "rolldown-runtime"
   },
   "app/game/scene/RestaurantScene.tsx": {
-    "file": "assets/RestaurantScene-B6eEBhyE.js",
+    "file": "assets/RestaurantScene-DriIgMkw.js",
     "name": "RestaurantScene",
     "src": "app/game/scene/RestaurantScene.tsx",
     "isDynamicEntry": true,
@@ -26,7 +26,7 @@
     ]
   },
   "app/page.tsx": {
-    "file": "assets/page-DgNusUwg.js",
+    "file": "assets/page-CDc228ep.js",
     "name": "page",
     "src": "app/page.tsx",
     "isDynamicEntry": true,
@@ -41,7 +41,7 @@
     ]
   },
   "node_modules/.pnpm/vinext@0.0.50_@vitejs+plugin-react@6.0.2_vite@8.0.13_@types+node@22.19.19_esbuild@0.28._e4ae96fc73b3a0140a6915388c4913a8/node_modules/vinext/dist/shims/layout-segment-context.js": {
-    "file": "assets/layout-segment-context-DHSH0thI.js",
+    "file": "assets/layout-segment-context-CN8SEphd.js",
     "name": "layout-segment-context",
     "src": "node_modules/.pnpm/vinext@0.0.50_@vitejs+plugin-react@6.0.2_vite@8.0.13_@types+node@22.19.19_esbuild@0.28._e4ae96fc73b3a0140a6915388c4913a8/node_modules/vinext/dist/shims/layout-segment-context.js",
     "isDynamicEntry": true,
@@ -52,7 +52,7 @@
     ]
   },
   "virtual:vinext-app-browser-entry": {
-    "file": "assets/index-Ch-KnLTy.js",
+    "file": "assets/index-z1SlYU4W.js",
     "name": "index",
     "src": "virtual:vinext-app-browser-entry",
     "isEntry": true,
