@@ -141,7 +141,8 @@ export function entranceOutsideCell(level: ExpansionLevel = 0): Vec2 {
 export function queueCell(index: number, level: ExpansionLevel = 0): Vec2 {
   const outside = entranceOutsideCell(level);
   const b = shopBounds(level);
-  const offsets = [1, 2, 3, -1, -2, -3, 0];
+  // 先沿门外左侧排开，避免被右下角实时服务面板遮住；满七组后再排第二列。
+  const offsets = [-1, -2, -3, -4, -5, 1, 2];
   const row = Math.floor(index / offsets.length);
   const x = Math.max(b.minX, Math.min(b.maxX, outside.x + offsets[index % offsets.length]));
   return { x, y: outside.y + row };
