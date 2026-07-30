@@ -14,6 +14,7 @@ import {
   type GameSettings,
   type GameState,
   type MusicStyle,
+  type Staff,
   type SaveState,
   type Security,
   type WallStyle,
@@ -44,23 +45,23 @@ export const initialItems: CellItem[] = [
 
 /** 蓝宝石原创洋食菜单（气质对齐一代东京西餐厅，非原作菜名商标） */
 export const initialDishes: Dish[] = [
-  { name: "蓝宝石汉堡排", icon: "🍔", price: 65, cost: 24, quality: 2, stock: 40, demand: 1.3, tags: ["western", "value"], kind: "food", portion: 3, intensity: 3, oiliness: 3, pairDrink: "beer", cookTime: 0.85, onMenu: true },
-  { name: "那不勒斯面", icon: "🍝", price: 58, cost: 21, quality: 2, stock: 32, demand: 1.05, tags: ["western", "formal"], kind: "food", portion: 3, intensity: 3, oiliness: 2, pairDrink: "red", cookTime: 1.1, onMenu: true },
-  { name: "炸猪排定食", icon: "🍛", price: 72, cost: 29, quality: 2, stock: 28, demand: 0.9, tags: ["japanese", "formal"], kind: "food", portion: 4, intensity: 3, oiliness: 4, pairDrink: "beer", cookTime: 1.2, onMenu: true },
-  { name: "咖哩猪肉饭", icon: "🍚", price: 48, cost: 18, quality: 2, stock: 36, demand: 1.4, tags: ["japanese", "value"], kind: "food", portion: 4, intensity: 4, oiliness: 3, pairDrink: "beer", cookTime: 0.75, onMenu: true },
-  { name: "三明治拼盘", icon: "🥪", price: 32, cost: 12, quality: 2, stock: 40, demand: 1.25, tags: ["western", "value", "cafe"], kind: "food", portion: 2, intensity: 2, oiliness: 2, pairDrink: "none", cookTime: 0.65, onMenu: true },
-  { name: "蛋包饭", icon: "🍳", price: 55, cost: 20, quality: 2, stock: 24, demand: 1.0, tags: ["japanese", "cafe"], kind: "food", portion: 3, intensity: 2, oiliness: 3, pairDrink: "white", cookTime: 1.0, onMenu: false },
-  { name: "奶油可乐饼", icon: "🥔", price: 42, cost: 14, quality: 2, stock: 30, demand: 1.15, tags: ["japanese", "value"], kind: "food", portion: 2, intensity: 2, oiliness: 4, pairDrink: "beer", cookTime: 0.9, onMenu: true },
-  { name: "鲜虾焗饭", icon: "🦐", price: 68, cost: 26, quality: 3, stock: 20, demand: 0.85, tags: ["western", "formal"], kind: "food", portion: 3, intensity: 3, oiliness: 3, pairDrink: "white", cookTime: 1.15, onMenu: false },
-  { name: "奶焗通心粉", icon: "🧀", price: 52, cost: 19, quality: 2, stock: 26, demand: 0.95, tags: ["western", "cafe"], kind: "food", portion: 3, intensity: 3, oiliness: 4, pairDrink: "red", cookTime: 1.05, onMenu: false },
-  { name: "姜汁猪排", icon: "🥩", price: 78, cost: 32, quality: 3, stock: 18, demand: 0.8, tags: ["japanese", "formal"], kind: "food", portion: 4, intensity: 4, oiliness: 3, pairDrink: "red", cookTime: 1.25, onMenu: false },
-  { name: "热咖啡", icon: "☕", price: 18, cost: 5, quality: 2, stock: 60, demand: 1.45, tags: ["cafe", "value"], kind: "drink", portion: 2, intensity: 3, oiliness: 1, pairDrink: "none", cookTime: 0.4, onMenu: true },
-  { name: "柳橙汁", icon: "🧃", price: 16, cost: 4, quality: 2, stock: 40, demand: 1.2, tags: ["cafe", "value"], kind: "drink", portion: 2, intensity: 2, oiliness: 1, pairDrink: "none", cookTime: 0.35, onMenu: true },
-  { name: "红茶", icon: "🍵", price: 15, cost: 4, quality: 2, stock: 40, demand: 1.1, tags: ["cafe"], kind: "drink", portion: 2, intensity: 2, oiliness: 1, pairDrink: "none", cookTime: 0.4, onMenu: true },
-  { name: "罐装啤酒", icon: "🍺", price: 28, cost: 10, quality: 2, stock: 30, demand: 1.15, tags: ["value"], kind: "alcohol", portion: 2, intensity: 3, oiliness: 1, pairDrink: "beer", cookTime: 0.3, onMenu: true },
-  { name: "红酒", icon: "🍷", price: 68, cost: 28, quality: 3, stock: 20, demand: 0.7, tags: ["formal"], kind: "alcohol", portion: 2, intensity: 3, oiliness: 1, pairDrink: "red", cookTime: 0.35, onMenu: true },
-  { name: "白酒", icon: "🥂", price: 58, cost: 22, quality: 2, stock: 20, demand: 0.65, tags: ["formal"], kind: "alcohol", portion: 2, intensity: 2, oiliness: 1, pairDrink: "white", cookTime: 0.35, onMenu: true },
-  { name: SECRET_DISH_NAME, icon: "🍲", price: 120, cost: 45, quality: 5, stock: 8, demand: 0.55, tags: ["formal", "western"], kind: "food", portion: 5, intensity: 4, oiliness: 3, pairDrink: "red", cookTime: 1.4, onMenu: false },
+  { name: "蓝宝石汉堡排", icon: "🍔", price: 650, cost: 240, quality: 2, stock: 40, demand: 1.3, tags: ["western", "value"], kind: "food", portion: 3, intensity: 3, oiliness: 3, pairDrink: "beer", cookTime: 0.85, onMenu: true },
+  { name: "那不勒斯面", icon: "🍝", price: 580, cost: 210, quality: 2, stock: 32, demand: 1.05, tags: ["western", "formal"], kind: "food", portion: 3, intensity: 3, oiliness: 2, pairDrink: "red", cookTime: 1.1, onMenu: true },
+  { name: "炸猪排定食", icon: "🍛", price: 720, cost: 290, quality: 2, stock: 28, demand: 0.9, tags: ["japanese", "formal"], kind: "food", portion: 4, intensity: 3, oiliness: 4, pairDrink: "beer", cookTime: 1.2, onMenu: true },
+  { name: "咖哩猪肉饭", icon: "🍚", price: 480, cost: 180, quality: 2, stock: 36, demand: 1.4, tags: ["japanese", "value"], kind: "food", portion: 4, intensity: 4, oiliness: 3, pairDrink: "beer", cookTime: 0.75, onMenu: true },
+  { name: "三明治拼盘", icon: "🥪", price: 320, cost: 120, quality: 2, stock: 40, demand: 1.25, tags: ["western", "value", "cafe"], kind: "food", portion: 2, intensity: 2, oiliness: 2, pairDrink: "none", cookTime: 0.65, onMenu: true },
+  { name: "蛋包饭", icon: "🍳", price: 550, cost: 200, quality: 2, stock: 24, demand: 1.0, tags: ["japanese", "cafe"], kind: "food", portion: 3, intensity: 2, oiliness: 3, pairDrink: "white", cookTime: 1.0, onMenu: false },
+  { name: "奶油可乐饼", icon: "🥔", price: 420, cost: 140, quality: 2, stock: 30, demand: 1.15, tags: ["japanese", "value"], kind: "food", portion: 2, intensity: 2, oiliness: 4, pairDrink: "beer", cookTime: 0.9, onMenu: true },
+  { name: "鲜虾焗饭", icon: "🦐", price: 680, cost: 260, quality: 3, stock: 20, demand: 0.85, tags: ["western", "formal"], kind: "food", portion: 3, intensity: 3, oiliness: 3, pairDrink: "white", cookTime: 1.15, onMenu: false },
+  { name: "奶焗通心粉", icon: "🧀", price: 520, cost: 190, quality: 2, stock: 26, demand: 0.95, tags: ["western", "cafe"], kind: "food", portion: 3, intensity: 3, oiliness: 4, pairDrink: "red", cookTime: 1.05, onMenu: false },
+  { name: "姜汁猪排", icon: "🥩", price: 780, cost: 320, quality: 3, stock: 18, demand: 0.8, tags: ["japanese", "formal"], kind: "food", portion: 4, intensity: 4, oiliness: 3, pairDrink: "red", cookTime: 1.25, onMenu: false },
+  { name: "热咖啡", icon: "☕", price: 180, cost: 50, quality: 2, stock: 60, demand: 1.45, tags: ["cafe", "value"], kind: "drink", portion: 2, intensity: 3, oiliness: 1, pairDrink: "none", cookTime: 0.4, onMenu: true },
+  { name: "柳橙汁", icon: "🧃", price: 160, cost: 40, quality: 2, stock: 40, demand: 1.2, tags: ["cafe", "value"], kind: "drink", portion: 2, intensity: 2, oiliness: 1, pairDrink: "none", cookTime: 0.35, onMenu: true },
+  { name: "红茶", icon: "🍵", price: 150, cost: 40, quality: 2, stock: 40, demand: 1.1, tags: ["cafe"], kind: "drink", portion: 2, intensity: 2, oiliness: 1, pairDrink: "none", cookTime: 0.4, onMenu: true },
+  { name: "罐装啤酒", icon: "🍺", price: 280, cost: 100, quality: 2, stock: 30, demand: 1.15, tags: ["value"], kind: "alcohol", portion: 2, intensity: 3, oiliness: 1, pairDrink: "beer", cookTime: 0.3, onMenu: true },
+  { name: "红酒", icon: "🍷", price: 680, cost: 280, quality: 3, stock: 20, demand: 0.7, tags: ["formal"], kind: "alcohol", portion: 2, intensity: 3, oiliness: 1, pairDrink: "red", cookTime: 0.35, onMenu: true },
+  { name: "白酒", icon: "🥂", price: 580, cost: 220, quality: 2, stock: 20, demand: 0.65, tags: ["formal"], kind: "alcohol", portion: 2, intensity: 2, oiliness: 1, pairDrink: "white", cookTime: 0.35, onMenu: true },
+  { name: SECRET_DISH_NAME, icon: "🍲", price: 1200, cost: 450, quality: 5, stock: 8, demand: 0.55, tags: ["formal", "western"], kind: "food", portion: 5, intensity: 4, oiliness: 3, pairDrink: "red", cookTime: 1.4, onMenu: false },
 ];
 
 /** 旧品牌菜名 → 新名（存档迁移） */
@@ -126,13 +127,13 @@ function normalizeEntrance(v: unknown): EntranceStyle {
 export function createInitialState(): GameState {
   const baseWage = 600;
   const items = initialItems.map((i) => ({ ...i }));
+  const settings = defaultSettings();
   let nextId = 100;
   const staff = [
     createStaff("waiter", nextId++, baseWage, items),
     createStaff("waiter", nextId++, baseWage, items),
     createStaff("chef", nextId++, baseWage + 50, items),
-  ];
-  const settings = defaultSettings();
+  ].map((member) => ({ ...member, lastCleanMinute: settings.openMinute }));
   return {
     restaurantName: DEFAULT_RESTAURANT_NAME,
     cash: 50000,
@@ -146,6 +147,7 @@ export function createInitialState(): GameState {
     speed: 0,
     served: 0,
     revenue: 0,
+    dayIngredientCost: 0,
     rating: 2.8,
     stars: 1,
     totalProfit: 0,
@@ -164,6 +166,9 @@ export function createInitialState(): GameState {
     cookbookUnlocked: false,
     lastEventDay: 0,
     monthGuestPeak: 0,
+    queueWalkouts: 0,
+    serviceWalkouts: 0,
+    maxQueue: 0,
   };
 }
 
@@ -227,8 +232,8 @@ export function loadSave(): GameState | null {
     const wage = s.baseWage ?? s.wage ?? 600;
     const rawItems = (s.items ?? base.items).map((it, idx) => normalizeItem(it as CellItem, idx));
 
-    let staff = Array.isArray(s.staff) && s.staff.length
-      ? s.staff.map((st) => ({
+    const staff: Staff[] = Array.isArray(s.staff) && s.staff.length
+      ? s.staff.map<Staff>((st) => ({
           ...createStaff(st.role ?? "waiter", st.id, st.wage ?? wage, rawItems),
           ...st,
           path: [],
@@ -259,7 +264,11 @@ export function loadSave(): GameState | null {
 
     // 合并新增菜色：旧存档缺的菜补进列表；旧品牌菜名迁到新名
     const savedDishes = (s.dishes ?? []).map((d) => {
-      const dish = normalizeDish(d);
+      const normalized = normalizeDish(d);
+      const dish =
+        (s.v ?? 0) < 5
+          ? { ...normalized, price: normalized.price * 10, cost: normalized.cost * 10 }
+          : normalized;
       const renamed = DISH_RENAME[dish.name];
       return renamed ? { ...dish, name: renamed } : dish;
     });
@@ -334,8 +343,12 @@ export function loadSave(): GameState | null {
       speed: 0,
       served: 0,
       revenue: 0,
+      dayIngredientCost: 0,
       lastEventDay: 0,
       monthGuestPeak: 0,
+      queueWalkouts: 0,
+      serviceWalkouts: 0,
+      maxQueue: 0,
     };
 
     // 从旧 key 读到后立刻写入新 key 并清理旧 key，避免丢档
@@ -369,7 +382,11 @@ export function writeSave(state: GameState): void {
     security: state.security,
     settings: state.settings,
     regulars: state.regulars,
-    staff: state.staff.map(({ path: _p, taskId: _t, ...rest }) => rest),
+    staff: state.staff.map(({ path, taskId, ...rest }) => {
+      void path;
+      void taskId;
+      return rest;
+    }),
     baseWage: state.baseWage,
     ratingHistory: state.ratingHistory,
     nextBuyOrder: state.nextBuyOrder,

@@ -3,7 +3,7 @@ export const H = 8;
 export const SAVE_KEY = "sapphire-restaurant-save";
 /** 旧品牌存档 key，读取时迁移一次 */
 export const LEGACY_SAVE_KEY = "corner-bistro-save";
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
 export const DEFAULT_RESTAURANT_NAME = "蓝宝石餐厅";
 export const SECRET_DISH_NAME = "蓝宝石秘传锅";
 
@@ -226,6 +226,9 @@ export type Dish = {
 export type DaySummary = {
   revenue: number;
   guests: number;
+  queueWalkouts: number;
+  serviceWalkouts: number;
+  maxQueue: number;
   rating: number;
   costs: number;
   profit: number;
@@ -250,6 +253,8 @@ export type GameState = {
   speed: number;
   served: number;
   revenue: number;
+  /** 今日实际售出食材成本，随出餐累积 */
+  dayIngredientCost: number;
   rating: number;
   stars: number;
   totalProfit: number;
@@ -268,7 +273,15 @@ export type GameState = {
   cookbookUnlocked: boolean;
   lastEventDay: number;
   monthGuestPeak: number;
+  /** 今日在门口等不及离开的客人数 */
+  queueWalkouts: number;
+  /** 今日入座后因服务过慢离开的客人数 */
+  serviceWalkouts: number;
+  /** 今日同时排队的最高组数 */
+  maxQueue: number;
 };
+
+export type PersistedStaff = Omit<Staff, "path" | "taskId">;
 
 export type SaveState = {
   v: number;
@@ -286,7 +299,7 @@ export type SaveState = {
   security?: Security;
   settings?: GameSettings;
   regulars: Regular[];
-  staff: Staff[];
+  staff: PersistedStaff[];
   baseWage: number;
   ratingHistory: number[];
   nextBuyOrder?: number;

@@ -261,13 +261,13 @@ function staffCellsPerSec(s: Staff, simSpeed: number): number {
   const expBonus = 1 + Math.min(0.5, s.exp / 100);
   const moodMul = s.mood < 35 ? 0.55 : s.mood < 55 ? 0.78 : 1;
   const statMul = 0.7 + s.speedStat / 200;
-  const cellsPerTick = 0.5 * expBonus * moodMul * statMul * (0.7 + speed * 0.15);
+  const cellsPerTick = 1.25 * expBonus * moodMul * statMul * Math.max(1, speed);
   return cellsPerTick / SIM_TICK_SEC;
 }
 
 function guestCellsPerSec(simSpeed: number): number {
   const speed = Math.max(0, simSpeed);
-  const cellsPerTick = 0.45 * (0.8 + speed * 0.1);
+  const cellsPerTick = 0.7 * Math.max(1, speed);
   return cellsPerTick / SIM_TICK_SEC;
 }
 
@@ -458,8 +458,7 @@ export function ActorsLayer({
           (stageBubble &&
             !task &&
             guest.stage !== "seating" &&
-            guest.stage !== "leaving" &&
-            guest.stage !== "queue");
+            guest.stage !== "leaving");
         return (
           <ActorWithWalk
             key={`g-${guest.id}`}

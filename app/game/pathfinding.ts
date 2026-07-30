@@ -119,7 +119,7 @@ export function stepAlongPath(
   let nx = x;
   let ny = y;
   let remaining = Math.max(0.15, speed);
-  let nextPath = [...path];
+  const nextPath = [...path];
   while (remaining > 0 && nextPath.length) {
     const target = nextPath[0];
     const dx = target.x - nx;

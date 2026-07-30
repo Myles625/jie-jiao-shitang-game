@@ -81,7 +81,7 @@ function staffSpeed(s: Staff): number {
   const expBonus = 1 + Math.min(0.5, s.exp / 100);
   const moodMul = s.mood < 35 ? 0.55 : s.mood < 55 ? 0.78 : 1;
   const statMul = 0.7 + s.speedStat / 200;
-  return 0.5 * expBonus * moodMul * statMul;
+  return 1.25 * expBonus * moodMul * statMul;
 }
 
 function ensureTask(state: GameState, kind: TaskKind, guestId: number): void {
@@ -136,7 +136,7 @@ function moveEntity(items: CellItem[], ent: { x: number; y: number; path: Vec2[]
 function setPathTo(items: CellItem[], ent: { x: number; y: number; path: Vec2[] }, goal: Vec2): boolean {
   const path = findPath(items, { x: ent.x, y: ent.y }, goal);
   ent.path = path;
-  return true;
+  return path.length > 0 || Math.hypot(ent.x - goal.x, ent.y - goal.y) < 0.35;
 }
 
 function arrived(ent: { x: number; y: number; path: Vec2[] }, goal?: Vec2 | null): boolean {
@@ -188,12 +188,15 @@ function assignTasks(state: GameState): void {
     }
     const worker = candidates[0];
     if (!worker) continue;
+    const target = taskTarget(state, task);
+    if (!target || !setPathTo(state.items, worker, target)) {
+      state.toast = "服务动线被家具挡住了，暂停后调整桌椅或设备";
+      continue;
+    }
     task.assigneeId = worker.id;
     worker.taskId = task.id;
     const idx = free.findIndex((s) => s.id === worker.id);
     if (idx >= 0) free.splice(idx, 1);
-    const target = taskTarget(state, task);
-    if (target) setPathTo(state.items, worker, target);
   }
 }
 
@@ -212,7 +215,9 @@ function completeTask(state: GameState, task: Task, worker: Staff): void {
 
   if (task.kind === "clean") {
     state.atmosphere.cleanliness = Math.min(100, state.atmosphere.cleanliness + 18);
-    worker.lastCleanMinute = state.minute;
+    for (const waiter of state.staff) {
+      if (waiter.role === "waiter") waiter.lastCleanMinute = state.minute;
+    }
     return;
   }
 
@@ -265,7 +270,9 @@ function completeTask(state: GameState, task: Task, worker: Staff): void {
     ensureTask(state, "cook", guest.id);
   } else if (task.kind === "cook") {
     const dish = state.dishes.find((d) => d.name === guest.dish);
+    const drink = state.dishes.find((d) => d.name === guest.drink);
     const cookMul = dish?.cookTime ?? 1;
+    state.dayIngredientCost += (dish?.cost ?? 0) * guest.size + (drink?.cost ?? 0);
     // cookTime 已在进度里体现；此处扣库存
     state.dishes = state.dishes.map((d) => {
       if (d.name === guest.dish) return { ...d, stock: Math.max(0, d.stock - guest.size) };
@@ -349,21 +356,18 @@ function wanderIdle(state: GameState, s: Staff): void {
 }
 
 function maybeQueueClean(state: GameState): void {
-  for (const s of state.staff) {
-    if (s.role !== "waiter" || s.onLeave || !s.cleanInterval) continue;
-    const elapsed = state.minute - s.lastCleanMinute;
-    if (elapsed >= s.cleanInterval && !state.tasks.some((t) => t.kind === "clean" && t.assigneeId === s.id)) {
-      if (!state.tasks.some((t) => t.kind === "clean" && t.assigneeId == null)) {
-        state.tasks.push({
-          id: state.nextId++,
-          kind: "clean",
-          guestId: -1,
-          priority: TASK_PRIORITY.clean,
-          progress: 0,
-        });
-      }
-    }
-  }
+  if (state.tasks.some((t) => t.kind === "clean")) return;
+  const due = state.staff
+    .filter((s) => s.role === "waiter" && !s.onLeave && s.cleanInterval > 0)
+    .some((s) => state.minute - s.lastCleanMinute >= s.cleanInterval);
+  if (!due) return;
+  state.tasks.push({
+    id: state.nextId++,
+    kind: "clean",
+    guestId: -1,
+    priority: TASK_PRIORITY.clean,
+    progress: 0,
+  });
 }
 
 function spawnGuest(state: GameState): void {
@@ -391,7 +395,7 @@ function spawnGuest(state: GameState): void {
   }
   const qIndex = state.guests.filter((g) => g.stage === "queue").length;
   const pos = queueCell(qIndex);
-  const budgetBase = (40 + size * 26 + Math.random() * 50) * loc.budgetMul;
+  const budgetBase = (400 + size * 260 + Math.random() * 500) * loc.budgetMul;
   const diffPatience = difficulty === "easy" ? 12 : difficulty === "hard" ? -10 : 0;
   const patience =
     65 +
@@ -418,6 +422,7 @@ function spawnGuest(state: GameState): void {
     taskQueued: false,
     wantsLuxury,
   });
+  state.maxQueue = Math.max(state.maxQueue, state.guests.filter((g) => g.stage === "queue").length);
   if (regularId) state.toast = `老顾客光临：想吃点${tasteLabel(taste)}`;
 }
 
@@ -435,7 +440,7 @@ function tasteLabel(t: string): string {
 function processStaffTasks(state: GameState, speed: number): void {
   for (const worker of state.staff) {
     if (worker.onLeave) continue;
-    moveEntity(state.items, worker, staffSpeed(worker) * (0.7 + speed * 0.15));
+    moveEntity(state.items, worker, staffSpeed(worker) * Math.max(1, speed));
 
     if (worker.taskId == null) {
       wanderIdle(state, worker);
@@ -447,11 +452,21 @@ function processStaffTasks(state: GameState, speed: number): void {
       continue;
     }
     const target = taskTarget(state, task);
-    if (target && !arrived(worker, target)) {
-      if (!worker.path.length) setPathTo(state.items, worker, target);
+    if (!target) {
+      worker.taskId = undefined;
+      task.assigneeId = undefined;
+      state.toast = "服务动线缺少必要设备，请检查料理台、收银台与卫生间";
       continue;
     }
-    let rate = 18 * staffSpeed(worker) * (speed || 1);
+    if (!arrived(worker, target)) {
+      if (!worker.path.length && !setPathTo(state.items, worker, target)) {
+        worker.taskId = undefined;
+        task.assigneeId = undefined;
+        state.toast = "服务动线被家具挡住了，暂停后调整桌椅或设备";
+      }
+      continue;
+    }
+    let rate = 42 * staffSpeed(worker) * (speed || 1);
     if (task.kind === "cook") {
       const guest = guestAt(state, task.guestId);
       const dish = state.dishes.find((d) => d.name === guest?.dish);
@@ -472,11 +487,11 @@ function processStaffTasks(state: GameState, speed: number): void {
 
 function advanceGuests(state: GameState, speed: number): void {
   const loc = getLocation(state.locationId);
-  const decay = patienceDecay(state.atmosphere, loc.cleanNeed);
+  const decay = patienceDecay(state.atmosphere, loc.cleanNeed) * Math.max(1, speed);
   const leaving: number[] = [];
 
   for (const guest of state.guests) {
-    moveEntity(state.items, guest, 0.45 * (0.8 + speed * 0.1));
+    moveEntity(state.items, guest, 0.7 * Math.max(1, speed));
 
     if (guest.stage === "leaving") {
       if (arrived(guest, entranceCell()) || guest.path.length === 0) leaving.push(guest.id);
@@ -493,6 +508,7 @@ function advanceGuests(state: GameState, speed: number): void {
       if (guest.patience <= 0 || guest.mood <= 0) {
         state.rating = Math.max(1, state.rating - 0.04);
         state.toast = "有客人等不及离开了";
+        state.queueWalkouts += guest.size;
         leaving.push(guest.id);
         state.tasks = state.tasks.filter((t) => t.guestId !== guest.id);
       }
@@ -520,6 +536,7 @@ function advanceGuests(state: GameState, speed: number): void {
       if (guest.patience <= 0) {
         state.rating = Math.max(1, state.rating - 0.03);
         state.toast = "客人因等待过久离店";
+        state.serviceWalkouts += guest.size;
         guest.stage = "leaving";
         guest.tableId = undefined;
         state.tasks = state.tasks.filter((t) => t.guestId !== guest.id);
@@ -553,9 +570,9 @@ function advanceGuests(state: GameState, speed: number): void {
   if (leaving.length) state.guests = state.guests.filter((g) => !leaving.includes(g.id));
 }
 
-function tickAtmosphere(state: GameState): void {
+function tickAtmosphere(state: GameState, speed: number): void {
   const loc = getLocation(state.locationId);
-  const drop = 0.06 + loc.cleanNeed * 0.08;
+  const drop = (0.06 + loc.cleanNeed * 0.08) * Math.max(1, speed);
   if (state.atmosphere.cleanliness > 12) {
     state.atmosphere.cleanliness = Math.max(8, state.atmosphere.cleanliness - drop);
   }
@@ -574,19 +591,16 @@ export function tick(prev: GameState, tickIndex: number): GameState {
   }
 
   const diffMul = state.settings.difficulty === "easy" ? 1.2 : state.settings.difficulty === "hard" ? 0.78 : 1;
-  const spawnEvery = Math.max(
-    2,
-    Math.round(
-      8 / Math.max(0.35, spawnRateModifier(state) * diffMul) - speed * 0.4 - Math.floor(state.rating) * 0.25,
-    ),
-  );
+  const baseSpawnTicks =
+    8 / Math.max(0.35, spawnRateModifier(state) * diffMul) - Math.floor(state.rating) * 0.25;
+  const spawnEvery = Math.max(1, Math.round(baseSpawnTicks / Math.max(1, speed)));
   if (tickIndex % spawnEvery === 0) spawnGuest(state);
 
   maybeQueueClean(state);
   assignTasks(state);
   processStaffTasks(state, speed);
   advanceGuests(state, speed);
-  tickAtmosphere(state);
+  tickAtmosphere(state, speed);
 
   return state;
 }
@@ -673,6 +687,9 @@ export function closeDay(state: GameState): { state: GameState; summary: DaySumm
   const summary: DaySummary = {
     revenue: next.revenue,
     guests: next.served,
+    queueWalkouts: next.queueWalkouts,
+    serviceWalkouts: next.serviceWalkouts,
+    maxQueue: next.maxQueue,
     rating: next.rating,
     costs: costs.total,
     profit,
@@ -691,6 +708,10 @@ export function nextDay(state: GameState): GameState {
   next.minute = next.settings.openMinute;
   next.revenue = 0;
   next.served = 0;
+  next.dayIngredientCost = 0;
+  next.queueWalkouts = 0;
+  next.serviceWalkouts = 0;
+  next.maxQueue = 0;
   next.guests = [];
   next.tasks = [];
   next.dishes = next.dishes.map((d) => {

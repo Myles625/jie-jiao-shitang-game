@@ -4,8 +4,8 @@ import type { Atmosphere, Dish, GameState, Guest, LocationId, Security, TasteTag
 export function tasteScore(dish: Dish, taste: TasteTag): number {
   if (!dish.onMenu || dish.stock <= 0) return 0;
   const hit = dish.tags.includes(taste) ? 1.7 : 0.65;
-  const valueBias = taste === "value" ? Math.max(0.4, 1.5 - dish.price / 100) : 1;
-  const formalBias = taste === "formal" ? 0.8 + dish.quality * 0.12 + dish.portion * 0.06 + dish.price / 180 : 1;
+  const valueBias = taste === "value" ? Math.max(0.4, 1.5 - dish.price / 1000) : 1;
+  const formalBias = taste === "formal" ? 0.8 + dish.quality * 0.12 + dish.portion * 0.06 + dish.price / 1800 : 1;
   const portionBias = 0.75 + dish.portion * 0.08;
   const intensityBias = 0.8 + dish.intensity * 0.06;
   return dish.demand * hit * valueBias * formalBias * portionBias * intensityBias;
@@ -17,7 +17,7 @@ export function chooseDishForGuest(dishes: Dish[], guest: Guest): Dish | undefin
   const scored = available.map((d) => {
     let w = Math.max(0.05, tasteScore(d, guest.taste));
     if (guest.wantsLuxury) w *= 0.6 + d.quality * 0.15 + d.price / 120;
-    else w *= Math.max(0.4, 1.3 - d.price / 100);
+    else w *= Math.max(0.4, 1.3 - d.price / 1000);
     return { d, w };
   });
   const total = scored.reduce((s, x) => s + x.w, 0);
@@ -145,10 +145,7 @@ export function computeDayCosts(state: GameState): {
 } {
   const loc = getLocation(state.locationId);
   const payroll = state.staff.filter((s) => !s.onLeave).reduce((sum, s) => sum + s.wage, 0);
-  const ingredient = state.dishes.reduce((sum, d) => {
-    const target = d.kind === "food" ? 35 : 18;
-    return sum + Math.max(0, target - Math.min(target, d.stock)) * d.cost;
-  }, 0);
+  const ingredient = state.dayIngredientCost;
   const ads = state.atmosphere.ads ? 650 : 0;
   const security =
     (state.security.camera ? 200 : 0) +

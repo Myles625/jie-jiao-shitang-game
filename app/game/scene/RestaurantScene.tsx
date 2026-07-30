@@ -2,12 +2,17 @@
 
 import { OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
-import { Suspense, useLayoutEffect, useMemo } from "react";
+import { memo, Suspense, useLayoutEffect, useMemo } from "react";
 import type { CellItem, EntranceStyle, FloorStyle, Guest, Staff, Task, Tool, WallStyle } from "../types";
 import { BuildingShell } from "./building";
 import { ActorsLayer } from "./characters";
 import { DecorProps, FurnitureLayer } from "./furniture";
 import { tableFoodFor } from "./tableFood";
+
+const CAMERA_CONFIG = { position: [12, 14, 12] as [number, number, number], zoom: 28, near: -80, far: 200, up: [0, 1, 0] as [number, number, number] };
+const GL_CONFIG = { antialias: true, alpha: false, powerPreference: "default" as const };
+const CANVAS_DPR: [number, number] = [1, 1.25];
+const RESIZE_CONFIG = { scroll: false, debounce: { scroll: 0, resize: 0 } };
 
 export type SceneProps = {
   items: CellItem[];
@@ -26,7 +31,7 @@ export type SceneProps = {
   showBubbles?: boolean;
 };
 
-function Lights() {
+const Lights = memo(function Lights() {
   return (
     <>
       <ambientLight intensity={0.42} color="#fff4e0" />
@@ -48,9 +53,9 @@ function Lights() {
       <directionalLight position={[-6, 6, -4]} intensity={0.25} color="#a8c8e8" />
     </>
   );
-}
+});
 
-function CameraRig() {
+const CameraRig = memo(function CameraRig() {
   const camera = useThree((s) => s.camera);
   useLayoutEffect(() => {
     camera.position.set(12, 14, 12);
@@ -69,7 +74,7 @@ function CameraRig() {
       target={[0, 0.4, 0]}
     />
   );
-}
+});
 
 function World({
   items,
@@ -110,21 +115,37 @@ function World({
   }, [tasks]);
 
   const buildable = tool !== "select";
+  const staticEnvironment = useMemo(
+    () => (
+      <>
+        <BuildingShell
+          locationLabel={locationLabel}
+          restaurantName={restaurantName}
+          buildable={buildable}
+          onCellClick={onCellClick}
+          floorStyle={floorStyle}
+          wallStyle={wallStyle}
+          entranceStyle={entranceStyle}
+        />
+        <DecorProps />
+      </>
+    ),
+    [
+      buildable,
+      entranceStyle,
+      floorStyle,
+      locationLabel,
+      onCellClick,
+      restaurantName,
+      wallStyle,
+    ],
+  );
 
   return (
     <>
       <CameraRig />
       <Lights />
-      <BuildingShell
-        locationLabel={locationLabel}
-        restaurantName={restaurantName}
-        buildable={buildable}
-        onCellClick={onCellClick}
-        floorStyle={floorStyle}
-        wallStyle={wallStyle}
-        entranceStyle={entranceStyle}
-      />
-      <DecorProps />
+      {staticEnvironment}
       <FurnitureLayer items={items} foodById={foodById} />
       <ActorsLayer
         guests={guests}
@@ -144,11 +165,11 @@ export default function RestaurantScene(props: SceneProps) {
       <Canvas
         className="r3f-canvas"
         orthographic
-        camera={{ position: [12, 14, 12], zoom: 28, near: -80, far: 200, up: [0, 1, 0] }}
-        shadows
-        dpr={[1, 1.5]}
-        gl={{ antialias: true, alpha: false, powerPreference: "high-performance" }}
-        resize={{ scroll: false, debounce: { scroll: 0, resize: 0 } }}
+        camera={CAMERA_CONFIG}
+        shadows="basic"
+        dpr={CANVAS_DPR}
+        gl={GL_CONFIG}
+        resize={RESIZE_CONFIG}
         onCreated={({ camera, gl }) => {
           gl.setClearColor("#6aa8c8");
           gl.domElement.style.display = "block";

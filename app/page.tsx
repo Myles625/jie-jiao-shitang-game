@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { canRelocate } from "./game/economy";
 import { LOCATION_ORDER, calendarFromDay, getLocation } from "./game/locations";
 import { createInitialState, loadSave, toolData, writeSave } from "./game/save";
@@ -109,7 +109,9 @@ export default function Home() {
 
   useEffect(() => {
     const saved = loadSave();
-    if (saved) setGame(saved);
+    if (!saved) return;
+    const frame = window.requestAnimationFrame(() => setGame(saved));
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => {
@@ -145,8 +147,38 @@ export default function Home() {
   const activeGuests = game.guests
     .filter((g) => g.stage !== "queue" && g.stage !== "leaving")
     .reduce((sum, g) => sum + g.size, 0);
+  const queuePeople = game.guests
+    .filter((g) => g.stage === "queue")
+    .reduce((sum, g) => sum + g.size, 0);
   const seatCount = tables.reduce((sum, t) => sum + tableCap(t.type), 0);
   const payrollPreview = game.staff.filter((s) => !s.onLeave).reduce((sum, s) => sum + s.wage, 0);
+  const stageCounts = useMemo(() => {
+    const count = (stages: GameState["guests"][number]["stage"][]) =>
+      game.guests.filter((guest) => stages.includes(guest.stage)).length;
+    return [
+      { id: "queue", label: "候位", count: count(["queue"]) },
+      { id: "order", label: "点餐", count: count(["seating", "order"]) },
+      { id: "cook", label: "厨房", count: count(["waitingCook"]) },
+      { id: "serve", label: "待上菜", count: count(["waitingServe"]) },
+      { id: "eat", label: "用餐", count: count(["eat"]) },
+      { id: "pay", label: "结账", count: count(["pay"]) },
+    ];
+  }, [game.guests]);
+  const activeWaiters = game.staff.filter((staff) => staff.role === "waiter" && !staff.onLeave);
+  const activeChefs = game.staff.filter((staff) => staff.role === "chef" && !staff.onLeave);
+  const busyWaiters = activeWaiters.filter((staff) => staff.taskId != null).length;
+  const busyChefs = activeChefs.filter((staff) => staff.taskId != null).length;
+  const waitingCook = stageCounts.find((stage) => stage.id === "cook")?.count ?? 0;
+  const waitingServe = stageCounts.find((stage) => stage.id === "serve")?.count ?? 0;
+  const serviceInsight = !game.speed
+    ? "开门前检查：至少一名厨师、两名服务生，入口到桌边不要被家具封死。"
+    : queue >= 5 && busyWaiters >= activeWaiters.length
+      ? "迎宾拥堵：服务生已全忙，排队客人正在消耗耐心。"
+      : waitingCook >= 3 && busyChefs >= activeChefs.length
+        ? "厨房积压：减少慢菜或增聘厨师，能直接缩短出菜时间。"
+        : waitingServe >= 3
+          ? "出菜口积压：服务生正在来回奔波，桌区动线需要缩短。"
+          : "服务链运转正常，继续观察午市与晚市高峰。";
 
   function setSpeed(speed: number) {
     if (summary) return;
@@ -170,41 +202,36 @@ export default function Home() {
     setGame((g) => ({ ...g, speed: 0, toast: "已暂停营业" }));
   }
 
-  function clickCell(x: number, y: number) {
-    if (game.speed) {
-      setGame((g) => ({ ...g, toast: "营业中不能改装，先暂停营业" }));
-      return;
-    }
-    const existing = game.items.find((i) => i.x === x && i.y === y);
-    if (tool === "erase") {
-      if (!existing) return;
-      const refund = Math.round(toolData[existing.type].price * 0.4);
-      setGame((g) => ({
+  const clickCell = useCallback((x: number, y: number) => {
+    setGame((g) => {
+      if (g.speed) return { ...g, toast: "营业中不能改装，先暂停营业" };
+      const existing = g.items.find((item) => item.x === x && item.y === y);
+      if (tool === "erase") {
+        if (!existing) return g;
+        const refund = Math.round(toolData[existing.type].price * 0.4);
+        return {
+          ...g,
+          items: g.items.filter((item) => item.id !== existing.id),
+          cash: g.cash + refund,
+          toast: `已拆除${toolData[existing.type].name}，回收 ¥${refund}`,
+        };
+      }
+      if (tool === "select" || existing) return g;
+      const data = toolData[tool as FurnitureType];
+      if (g.cash < data.price) return { ...g, toast: "资金不足，先多经营几天吧" };
+      return {
         ...g,
-        items: g.items.filter((i) => i.id !== existing.id),
-        cash: g.cash + refund,
-        toast: `已拆除${toolData[existing.type].name}，回收 ¥${refund}`,
-      }));
-      return;
-    }
-    if (tool === "select" || existing) return;
-    const data = toolData[tool as FurnitureType];
-    if (game.cash < data.price) {
-      setGame((g) => ({ ...g, toast: "资金不足，先多经营几天吧" }));
-      return;
-    }
-    setGame((g) => ({
-      ...g,
-      items: [
-        ...g.items,
-        { id: g.nextId, type: tool as FurnitureType, x, y, buyOrder: g.nextBuyOrder },
-      ],
-      nextId: g.nextId + 1,
-      nextBuyOrder: g.nextBuyOrder + 1,
-      cash: g.cash - data.price,
-      toast: `已购入${data.name}（带位序 ${g.nextBuyOrder}）`,
-    }));
-  }
+        items: [
+          ...g.items,
+          { id: g.nextId, type: tool as FurnitureType, x, y, buyOrder: g.nextBuyOrder },
+        ],
+        nextId: g.nextId + 1,
+        nextBuyOrder: g.nextBuyOrder + 1,
+        cash: g.cash - data.price,
+        toast: `已购入${data.name}（带位序 ${g.nextBuyOrder}）`,
+      };
+    });
+  }, [tool]);
 
   function updateDish(
     index: number,
@@ -222,7 +249,7 @@ export default function Home() {
         if (key === "stock") return { ...d, stock: Math.max(0, d.stock + delta) };
         if (key === "cookTime")
           return { ...d, cookTime: Math.max(0.3, Math.min(2, Math.round((d.cookTime + delta) * 10) / 10)) };
-        return { ...d, price: Math.max(d.cost + 3, d.price + delta) };
+        return { ...d, price: Math.max(d.cost + 30, d.price + delta) };
       }),
     }));
   }
@@ -506,6 +533,35 @@ export default function Home() {
                 {queue === 0 && <em className="queue-empty">暂无</em>}
               </div>
             </div>
+            <section className="service-pulse" aria-label="实时服务链">
+              <header>
+                <span>LIVE SERVICE</span>
+                <b>{game.speed ? "营业脉搏" : "开店准备"}</b>
+              </header>
+              <div className="service-flow">
+                {stageCounts.map((stage, index) => (
+                  <div
+                    key={stage.id}
+                    className={`${stage.count > 0 ? "has-work" : ""} ${stage.count >= 4 ? "is-busy" : ""}`}
+                  >
+                    <small>{stage.label}</small>
+                    <b>{stage.count}</b>
+                    {index < stageCounts.length - 1 && <i>›</i>}
+                  </div>
+                ))}
+              </div>
+              <footer>
+                <span>
+                  服务生 <b>{busyWaiters}/{activeWaiters.length}</b>
+                </span>
+                <span>
+                  厨师 <b>{busyChefs}/{activeChefs.length}</b>
+                </span>
+                <span>
+                  今日流失 <b className={game.queueWalkouts + game.serviceWalkouts > 0 ? "warning" : ""}>{game.queueWalkouts + game.serviceWalkouts}</b>
+                </span>
+              </footer>
+            </section>
           </div>
           <div className="status-strip">
             <span>
@@ -515,13 +571,16 @@ export default function Home() {
               店内顾客 <b>{activeGuests}</b>
             </span>
             <span>
-              排队 <b className={queue > 3 ? "danger" : ""}>{queue}</b>
+              排队 <b className={queue > 3 ? "danger" : ""}>{queue}组/{queuePeople}人</b>
             </span>
             <span>
               料理台 <b>{kitchens}</b>
             </span>
             <span>
               清洁 <b>{Math.round(game.atmosphere.cleanliness)}</b>
+            </span>
+            <span>
+              流失 <b className={game.queueWalkouts + game.serviceWalkouts > 0 ? "danger" : ""}>{game.queueWalkouts + game.serviceWalkouts}</b>
             </span>
             <p>{game.toast}</p>
           </div>
@@ -530,10 +589,8 @@ export default function Home() {
 
       <footer className="bottombar">
         <div className="day-goal">
-          <small>今日建议</small>
-          <b>
-            {location.name}：先小桌后大桌，酒水别断货，温度调到 23–26℃
-          </b>
+          <small>现场判断 · {location.name}</small>
+          <b>{serviceInsight}</b>
         </div>
         <div className="speed-controls">
           <button className={game.speed === 0 ? "on" : ""} onClick={() => setSpeed(0)}>
@@ -639,15 +696,15 @@ export default function Home() {
                         </small>
                       </div>
                       <button className="menu-toggle" onClick={() => toggleMenu(i)}>
-                        {dish.onMenu ? "上架" : "下架"}
+                        {dish.onMenu ? "下架" : "上架"}
                       </button>
                     </div>
                     <label>
                       售价{" "}
                       <span>
-                        <button onClick={() => updateDish(i, "price", -5)}>−</button>
-                        <b>¥{dish.price}</b>
-                        <button onClick={() => updateDish(i, "price", 5)}>＋</button>
+                        <button onClick={() => updateDish(i, "price", -50)}>−</button>
+                        <b>¥{dish.price.toLocaleString()}</b>
+                        <button onClick={() => updateDish(i, "price", 50)}>＋</button>
                       </span>
                     </label>
                     <label>
@@ -768,8 +825,8 @@ export default function Home() {
                       </small>
                       <small className="stat-line">
                         {s.role === "chef"
-                          ? `机动${s.speedStat} · 调理${Math.round(s.cookSkill)} · 习得${s.learnRate} · 忍耐${s.endurance}`
-                          : `机动${s.speedStat} · 洞察${s.receptionStat} · 魅力${s.charm} · 习得${s.learnRate} · 忍耐${s.endurance}`}
+                          ? `机动${Math.round(s.speedStat)} · 调理${Math.round(s.cookSkill)} · 习得${Math.round(s.learnRate)} · 忍耐${Math.round(s.endurance)}`
+                          : `机动${Math.round(s.speedStat)} · 洞察${Math.round(s.receptionStat)} · 魅力${Math.round(s.charm)} · 习得${Math.round(s.learnRate)} · 忍耐${Math.round(s.endurance)}`}
                       </small>
                       <label className="wage-inline">
                         日薪
@@ -1190,6 +1247,17 @@ export default function Home() {
                 支出合计<b>−¥{summary.costs.toLocaleString()}</b>
               </span>
             </div>
+            <div className="ledger-service">
+              <span>
+                峰值排队<b>{summary.maxQueue} 组</b>
+              </span>
+              <span>
+                门口流失<b className={summary.queueWalkouts > 0 ? "loss" : ""}>{summary.queueWalkouts} 人</b>
+              </span>
+              <span>
+                入座后流失<b className={summary.serviceWalkouts > 0 ? "loss" : ""}>{summary.serviceWalkouts} 人</b>
+              </span>
+            </div>
             {summary.monthBonus > 0 && (
               <div className="profit">
                 <small>月末上榜奖金</small>
@@ -1206,10 +1274,12 @@ export default function Home() {
               <p className="ledger-note">事件：{summary.eventNotes.join(" · ")}</p>
             )}
             <p className="ledger-note">
-              {summary.guests < 15
-                ? "客流还不够。先小桌后大桌，并维持合理价格。"
-                : summary.rating < 3
-                  ? "等待过久或酒水断货？增聘员工、补货或清扫。"
+              {summary.queueWalkouts > summary.guests
+                ? "今天的首要问题是迎宾拥堵。增加服务生、缩短入口到桌区的动线，或调整桌型。"
+                : summary.serviceWalkouts > 0
+                  ? "客人入座后仍有流失。观察厨房与待上菜数量，找出真正卡住的环节。"
+                  : summary.profit < 0
+                    ? "服务链已经运转，但收入尚未覆盖工资、房租和实际食材成本。调整菜单利润或提升翻台。"
                   : "口碑正在传开，注意月末奖金与迁店时机。"}
             </p>
             <button onClick={goNextDay}>进入第 {game.day + 1} 日</button>
