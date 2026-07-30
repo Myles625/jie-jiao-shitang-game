@@ -4,7 +4,7 @@ import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef, type ReactNode } from "react";
 import * as THREE from "three";
 import { H, W, type EntranceStyle, type ExpansionLevel, type FloorStyle, type WallStyle } from "../types";
-import { isUnlockedCell, shopBounds } from "../pathfinding";
+import { entranceCell, isUnlockedCell, shopBounds } from "../pathfinding";
 import { CELL, gridToWorld, isKitchenZone, ROOM } from "./coords";
 import { KanbanPlane, ShopSignPlane, SpriteLabel } from "./labels";
 
@@ -238,12 +238,8 @@ function ServiceRooms({ expansionLevel }: { expansionLevel: ExpansionLevel }) {
   const kitchenCenter = gridToWorld(3.5, 3);
   const toiletCenter = gridToWorld(12, 3);
   const bounds = shopBounds(expansionLevel);
-  const sideX = gridToWorld(bounds.minX - 0.48, bounds.minY).x;
   const rightX = gridToWorld(bounds.maxX + 0.48, bounds.minY).x;
-  const rearZ = gridToWorld(bounds.minX, bounds.minY - 0.48).z;
   const frontZ = gridToWorld(bounds.minX, bounds.maxY + 0.48).z;
-  const activeW = bounds.width;
-  const activeD = bounds.height;
 
   return (
     <group>
@@ -308,7 +304,7 @@ function ServiceRooms({ expansionLevel }: { expansionLevel: ExpansionLevel }) {
         scale={[1.05, 0.32, 1]}
       />
 
-      {/* 化粧室：专用瓷砖、隔墙、洗手盆与门牌 */}
+      {/* 化粧室：专用瓷砖、封闭隔墙、实体门、洗手盆、镜子与小便池 */}
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
         position={[toiletCenter.x, 0.019, toiletCenter.z]}
@@ -332,45 +328,94 @@ function ServiceRooms({ expansionLevel }: { expansionLevel: ExpansionLevel }) {
         size={[1.48, 1.44, 0.12]}
         color="#c8d7d7"
       />
-      <group position={[gridToWorld(11.1, 2.35).x, 0, gridToWorld(11.1, 2.35).z]}>
-        <mesh position={[0, 0.42, 0]} castShadow>
-          <boxGeometry args={[0.58, 0.32, 0.42]} />
-          <meshStandardMaterial color="#eef1e8" roughness={0.35} />
+      {/* 门洞与向内开启的木门：顾客不会再穿墙 */}
+      <mesh position={[gridToWorld(12.02, 4.48).x, 0.82, gridToWorld(12.02, 4.48).z]} castShadow>
+        <boxGeometry args={[0.1, 1.64, 0.16]} />
+        <meshStandardMaterial color="#6e4c34" roughness={0.72} />
+      </mesh>
+      <mesh position={[gridToWorld(13.42, 4.48).x, 0.82, gridToWorld(13.42, 4.48).z]} castShadow>
+        <boxGeometry args={[0.1, 1.64, 0.16]} />
+        <meshStandardMaterial color="#6e4c34" roughness={0.72} />
+      </mesh>
+      <mesh position={[gridToWorld(12.72, 4.48).x, 1.62, gridToWorld(12.72, 4.48).z]} castShadow>
+        <boxGeometry args={[1.5, 0.1, 0.16]} />
+        <meshStandardMaterial color="#6e4c34" roughness={0.72} />
+      </mesh>
+      <group
+        position={[gridToWorld(12.08, 4.45).x, 0, gridToWorld(12.08, 4.45).z]}
+        rotation={[0, -0.72, 0]}
+      >
+        <mesh position={[0.58, 0.78, 0]} castShadow>
+          <boxGeometry args={[1.16, 1.48, 0.08]} />
+          <meshStandardMaterial color="#d7c5a6" roughness={0.74} />
         </mesh>
-        <mesh position={[0, 0.64, -0.14]}>
-          <boxGeometry args={[0.08, 0.38, 0.08]} />
-          <meshStandardMaterial color="#778284" metalness={0.65} roughness={0.25} />
+        <mesh position={[1.02, 0.78, 0.06]}>
+          <sphereGeometry args={[0.045, 10, 8]} />
+          <meshStandardMaterial color="#b58a36" metalness={0.5} roughness={0.3} />
+        </mesh>
+      </group>
+      {/* 独立洗手池：立柱、盆体、龙头与墙镜 */}
+      <group position={[gridToWorld(11.1, 2.35).x, 0, gridToWorld(11.1, 2.35).z]}>
+        <mesh position={[0, 0.28, 0]} castShadow>
+          <cylinderGeometry args={[0.14, 0.2, 0.56, 14]} />
+          <meshStandardMaterial color="#e9ece5" roughness={0.32} />
+        </mesh>
+        <mesh position={[0, 0.61, 0]} scale={[1.25, 0.55, 1]}>
+          <sphereGeometry args={[0.28, 16, 10]} />
+          <meshStandardMaterial color="#f5f6ef" roughness={0.25} />
+        </mesh>
+        <mesh position={[0, 0.72, 0]}>
+          <cylinderGeometry args={[0.18, 0.18, 0.025, 18]} />
+          <meshStandardMaterial color="#a9d0d7" roughness={0.18} />
+        </mesh>
+        <mesh position={[0, 0.82, -0.12]}>
+          <torusGeometry args={[0.11, 0.022, 8, 16, Math.PI]} />
+          <meshStandardMaterial color="#68777a" metalness={0.72} roughness={0.2} />
+        </mesh>
+      </group>
+      <group
+        position={[gridToWorld(10.6, 2.35).x, 1.22, gridToWorld(11.1, 2.35).z]}
+        rotation={[0, Math.PI / 2, 0]}
+      >
+        <mesh>
+          <boxGeometry args={[0.58, 0.72, 0.045]} />
+          <meshStandardMaterial color="#7a5a3d" roughness={0.68} />
+        </mesh>
+        <mesh position={[0, 0, 0.028]}>
+          <planeGeometry args={[0.48, 0.62]} />
+          <meshStandardMaterial color="#bfe0e8" metalness={0.45} roughness={0.12} />
+        </mesh>
+      </group>
+      {/* 靠后墙的小便池，和坐便器明确分开 */}
+      <group position={[gridToWorld(12.9, 2.12).x, 0, gridToWorld(12.9, 2.12).z]}>
+        <mesh position={[0, 0.52, 0]} scale={[0.72, 1, 0.5]} castShadow>
+          <sphereGeometry args={[0.3, 16, 10]} />
+          <meshStandardMaterial color="#f1f3ec" roughness={0.28} />
+        </mesh>
+        <mesh position={[0, 0.55, 0.12]} rotation={[-Math.PI / 2, 0, 0]}>
+          <circleGeometry args={[0.12, 18]} />
+          <meshStandardMaterial color="#9fc8d1" roughness={0.2} />
+        </mesh>
+        <mesh position={[0, 0.92, -0.02]}>
+          <boxGeometry args={[0.1, 0.18, 0.08]} />
+          <meshStandardMaterial color="#9aa8aa" metalness={0.5} roughness={0.26} />
         </mesh>
       </group>
       <SpriteLabel
         kind="bubble"
         text="化粧室"
-        position={[gridToWorld(12.7, 4.25).x, 1.55, gridToWorld(12.7, 4.25).z]}
+        position={[gridToWorld(12.72, 4.62).x, 1.86, gridToWorld(12.72, 4.62).z]}
         scale={[1.05, 0.32, 1]}
       />
 
-      {/* 当前承租边界；扩建后围挡实际外移，而不是只改一个数字 */}
+      {/* 扩建提示放在锁定地面上；实体外墙由 CutawayBuilding 随面积外移。 */}
       {expansionLevel < 2 ? (
-        <>
-          <mesh position={[sideX, 0.16, (rearZ + frontZ) / 2]} castShadow>
-            <boxGeometry args={[0.16, 0.32, activeD + 0.1]} />
-            <meshStandardMaterial color="#d49b3d" roughness={0.82} />
-          </mesh>
-          <mesh position={[rightX, 0.16, (rearZ + frontZ) / 2]} castShadow>
-            <boxGeometry args={[0.16, 0.32, activeD + 0.1]} />
-            <meshStandardMaterial color="#d49b3d" roughness={0.82} />
-          </mesh>
-          <mesh position={[(sideX + rightX) / 2, 0.16, rearZ]} castShadow>
-            <boxGeometry args={[activeW + 0.1, 0.32, 0.16]} />
-            <meshStandardMaterial color="#d49b3d" roughness={0.82} />
-          </mesh>
-          <SpriteLabel
-            kind="bubble"
-            text={`扩建预留区 ${bounds.width}×${bounds.height}`}
-            position={[sideX - 0.35, 0.72, rearZ + 0.65]}
-            scale={[1.65, 0.42, 1]}
-          />
-        </>
+        <SpriteLabel
+          kind="bubble"
+          text={`扩建预留区 ${bounds.width}×${bounds.height}`}
+          position={[rightX + 0.45, 0.45, frontZ - 0.55]}
+          scale={[1.65, 0.42, 1]}
+        />
       ) : null}
     </group>
   );
@@ -419,14 +464,28 @@ function CutawayBuilding({
   restaurantName,
   wallStyle,
   entranceStyle,
+  expansionLevel,
 }: {
   locationLabel: string;
   restaurantName: string;
   wallStyle: WallStyle;
   entranceStyle: EntranceStyle;
+  expansionLevel: ExpansionLevel;
 }) {
-  const hw = ROOM.w / 2;
-  const hd = ROOM.d / 2;
+  const bounds = shopBounds(expansionLevel);
+  const rearZ = gridToWorld(bounds.minX, bounds.minY - 0.5).z;
+  const frontZ = gridToWorld(bounds.minX, bounds.maxY + 0.5).z;
+  const leftX = gridToWorld(bounds.minX - 0.5, bounds.minY).x;
+  const rightX = gridToWorld(bounds.maxX + 0.5, bounds.minY).x;
+  const centerX = (leftX + rightX) / 2;
+  const centerZ = (rearZ + frontZ) / 2;
+  const activeW = rightX - leftX;
+  const activeD = frontZ - rearZ;
+  const entrance = entranceCell(expansionLevel);
+  const entranceX = gridToWorld(entrance.x, entrance.y).x;
+  const doorW = 1.24;
+  const leftFrontW = entranceX - doorW / 2 - leftX;
+  const rightFrontW = rightX - entranceX - doorW / 2;
   const wallColor = wallStyle === "brick" ? "#a87858" : wallStyle === "panel" ? "#d8c8a8" : "#c9b896";
   const trim = wallStyle === "panel" ? "#5a4030" : "#8a6a42";
   const doorColor = entranceStyle === "glass" ? "#7ec8e8" : entranceStyle === "lattice" ? "#3a5a40" : "#6b4428";
@@ -435,51 +494,47 @@ function CutawayBuilding({
   const wallMap = useMemo(() => {
     if (wallStyle === "brick") {
       const t = makeBrickTexture("#a87858");
-      t.repeat.set(6, 3);
+      t.repeat.set(Math.max(4, activeW / 2), 3);
       return t;
     }
     const t = makeStuccoTexture(wallColor);
-    t.repeat.set(4, 2);
+    t.repeat.set(Math.max(3, activeW / 3), 2);
     return t;
-  }, [wallStyle, wallColor]);
+  }, [activeW, wallStyle, wallColor]);
 
   return (
     <group>
-      {/* back wall */}
-      <mesh position={[0, ROOM.wallH / 2, -hd]} castShadow receiveShadow>
-        <boxGeometry args={[ROOM.w + 0.3, ROOM.wallH, 0.22]} />
+      {/* 后墙与两侧墙围成真实营业边界；扩建时整圈墙体随 bounds 外移 */}
+      <mesh position={[centerX, ROOM.wallH / 2, rearZ]} castShadow receiveShadow>
+        <boxGeometry args={[activeW + 0.22, ROOM.wallH, 0.22]} />
         <meshStandardMaterial map={wallMap} color={wallColor} roughness={0.88} flatShading />
       </mesh>
-      {/* wainscot */}
-      <mesh position={[0, 0.45, -hd + 0.12]} castShadow>
-        <boxGeometry args={[ROOM.w + 0.1, 0.9, 0.04]} />
+      <mesh position={[centerX, 0.45, rearZ + 0.12]} castShadow>
+        <boxGeometry args={[activeW, 0.9, 0.04]} />
         <meshStandardMaterial color="#8a6a42" roughness={0.8} flatShading />
       </mesh>
-      <mesh position={[0, 0.92, -hd + 0.13]}>
-        <boxGeometry args={[ROOM.w + 0.1, 0.06, 0.05]} />
+      <mesh position={[centerX, 0.92, rearZ + 0.13]}>
+        <boxGeometry args={[activeW, 0.06, 0.05]} />
         <meshStandardMaterial color="#6a4a30" flatShading />
       </mesh>
-      {/* top lip */}
-      <mesh position={[0, ROOM.wallH + 0.05, -hd + 0.05]} castShadow>
-        <boxGeometry args={[ROOM.w + 0.4, 0.12, 0.35]} />
+      <mesh position={[centerX, ROOM.wallH + 0.05, rearZ + 0.05]} castShadow>
+        <boxGeometry args={[activeW + 0.32, 0.12, 0.35]} />
         <meshStandardMaterial color={trim} roughness={0.8} flatShading />
       </mesh>
-      {/* left wall */}
-      <mesh position={[-hw, ROOM.cutH / 2, 0]} castShadow receiveShadow>
-        <boxGeometry args={[0.22, ROOM.cutH, ROOM.d]} />
+      <mesh position={[leftX, 0.72, centerZ]} castShadow receiveShadow>
+        <boxGeometry args={[0.22, 1.44, activeD + 0.22]} />
         <meshStandardMaterial map={wallMap} color={wallColor} roughness={0.88} flatShading />
       </mesh>
-      <mesh position={[-hw + 0.12, 0.45, 0]} castShadow>
-        <boxGeometry args={[0.04, 0.9, ROOM.d - 0.2]} />
+      <mesh position={[leftX + 0.12, 0.45, centerZ]} castShadow>
+        <boxGeometry args={[0.04, 0.9, activeD]} />
         <meshStandardMaterial color="#8a6a42" flatShading />
       </mesh>
-      <mesh position={[-hw, ROOM.cutH + 0.04, -hd / 2]} castShadow>
-        <boxGeometry args={[0.28, 0.1, ROOM.d / 2 + 0.2]} />
+      <mesh position={[leftX, 1.47, centerZ]} castShadow>
+        <boxGeometry args={[0.28, 0.1, activeD + 0.28]} />
         <meshStandardMaterial color={trim} flatShading />
       </mesh>
-      {/* right wall */}
-      <mesh position={[hw, ROOM.cutH / 2, 0]} castShadow receiveShadow>
-        <boxGeometry args={[0.22, ROOM.cutH, ROOM.d]} />
+      <mesh position={[rightX, 0.72, centerZ]} castShadow receiveShadow>
+        <boxGeometry args={[0.22, 1.44, activeD + 0.22]} />
         <meshStandardMaterial
           map={wallMap}
           color={wallStyle === "brick" ? "#986848" : "#b8a888"}
@@ -487,88 +542,128 @@ function CutawayBuilding({
           flatShading
         />
       </mesh>
-      {/* front stub walls */}
-      <mesh position={[-hw / 2 - 1.2, 0.55, hd]} castShadow receiveShadow>
-        <boxGeometry args={[ROOM.w / 2 - 1.4, 1.1, 0.2]} />
-        <meshStandardMaterial map={wallMap} color={wallColor} roughness={0.88} flatShading />
+      <mesh position={[rightX - 0.12, 0.45, centerZ]} castShadow>
+        <boxGeometry args={[0.04, 0.9, activeD]} />
+        <meshStandardMaterial color="#7b5a38" flatShading />
       </mesh>
-      <mesh position={[hw / 2 + 1.2, 0.55, hd]} castShadow receiveShadow>
-        <boxGeometry args={[ROOM.w / 2 - 1.4, 1.1, 0.2]} />
-        <meshStandardMaterial map={wallMap} color={wallColor} roughness={0.88} flatShading />
+      <mesh position={[rightX, 1.47, centerZ]} castShadow>
+        <boxGeometry args={[0.28, 0.1, activeD + 0.28]} />
+        <meshStandardMaterial color={trim} flatShading />
       </mesh>
-      {/* door */}
-      <mesh position={[hw - 1.5, 0.95, hd]} castShadow>
-        <boxGeometry args={[1.1, 1.9, 0.12]} />
-        <meshStandardMaterial
-          color={doorColor}
-          roughness={entranceStyle === "glass" ? 0.25 : 0.75}
-          metalness={entranceStyle === "glass" ? 0.35 : 0}
-          transparent={entranceStyle === "glass"}
-          opacity={entranceStyle === "glass" ? 0.75 : 1}
-          flatShading
-        />
-      </mesh>
-      <mesh position={[hw - 1.5, 0.95, hd + 0.04]}>
-        <boxGeometry args={[0.85, 1.65, 0.06]} />
-        <meshStandardMaterial
-          color={doorInner}
-          roughness={entranceStyle === "glass" ? 0.2 : 0.7}
-          transparent={entranceStyle === "glass"}
-          opacity={entranceStyle === "glass" ? 0.55 : 1}
-          flatShading
-        />
-      </mesh>
-      {entranceStyle === "lattice" &&
-        [-0.2, 0, 0.2].map((ox, i) => (
-          <mesh key={i} position={[hw - 1.5 + ox, 0.95, hd + 0.08]}>
-            <boxGeometry args={[0.05, 1.5, 0.04]} />
-            <meshStandardMaterial color="#c8b898" flatShading />
-          </mesh>
-        ))}
-      {/* door handle */}
-      <mesh position={[hw - 1.15, 0.95, hd + 0.1]}>
-        <boxGeometry args={[0.04, 0.12, 0.04]} />
-        <meshStandardMaterial color="#c9a84a" metalness={0.5} flatShading />
-      </mesh>
-      {/* back windows */}
-      {[-3.5, 0, 3.5].map((x, i) => (
-        <WindowPane key={i} position={[x, 1.55, -hd + 0.12]} size={[1.15, 0.85, 0.06]} trim={trim} />
-      ))}
-      {/* wall picture frames / lattice trim */}
-      {[-2, 2].map((x, i) => (
-        <mesh key={`frame-${i}`} position={[x, 1.15, -hd + 0.14]}>
-          <boxGeometry args={[0.7, 0.08, 0.03]} />
-          <meshStandardMaterial color={trim} flatShading />
+
+      {/* 靠近镜头的墙做低切面，但连续封到入口门框，不再是敞口平台 */}
+      {leftFrontW > 0 ? (
+        <mesh position={[leftX + leftFrontW / 2, 0.46, frontZ]} castShadow receiveShadow>
+          <boxGeometry args={[leftFrontW, 0.92, 0.22]} />
+          <meshStandardMaterial map={wallMap} color={wallColor} roughness={0.88} flatShading />
         </mesh>
+      ) : null}
+      {rightFrontW > 0 ? (
+        <mesh position={[entranceX + doorW / 2 + rightFrontW / 2, 0.46, frontZ]} castShadow receiveShadow>
+          <boxGeometry args={[rightFrontW, 0.92, 0.22]} />
+          <meshStandardMaterial map={wallMap} color={wallColor} roughness={0.88} flatShading />
+        </mesh>
+      ) : null}
+      {leftFrontW > 0 ? (
+        <mesh position={[leftX + leftFrontW / 2, 0.95, frontZ]} castShadow>
+          <boxGeometry args={[leftFrontW + 0.08, 0.1, 0.28]} />
+          <meshStandardMaterial color={trim} roughness={0.78} />
+        </mesh>
+      ) : null}
+      {rightFrontW > 0 ? (
+        <mesh position={[entranceX + doorW / 2 + rightFrontW / 2, 0.95, frontZ]} castShadow>
+          <boxGeometry args={[rightFrontW + 0.08, 0.1, 0.28]} />
+          <meshStandardMaterial color={trim} roughness={0.78} />
+        </mesh>
+      ) : null}
+
+      {/* 与逻辑入口同格的实体门：门框、门楣、门槛与向内开启的门扇 */}
+      <mesh position={[entranceX - doorW / 2, 1.02, frontZ]} castShadow>
+        <boxGeometry args={[0.12, 2.04, 0.22]} />
+        <meshStandardMaterial color={trim} roughness={0.7} />
+      </mesh>
+      <mesh position={[entranceX + doorW / 2, 1.02, frontZ]} castShadow>
+        <boxGeometry args={[0.12, 2.04, 0.22]} />
+        <meshStandardMaterial color={trim} roughness={0.7} />
+      </mesh>
+      <mesh position={[entranceX, 2.02, frontZ]} castShadow>
+        <boxGeometry args={[doorW + 0.14, 0.12, 0.24]} />
+        <meshStandardMaterial color={trim} roughness={0.7} />
+      </mesh>
+      <mesh position={[entranceX, 0.035, frontZ + 0.02]}>
+        <boxGeometry args={[doorW, 0.07, 0.38]} />
+        <meshStandardMaterial color="#b88c55" roughness={0.58} />
+      </mesh>
+      <group position={[entranceX - doorW / 2 + 0.04, 0, frontZ - 0.03]} rotation={[0, 0.72, 0]}>
+        <mesh position={[doorW / 2 - 0.06, 0.96, 0]} castShadow>
+          <boxGeometry args={[doorW - 0.12, 1.82, 0.1]} />
+          <meshStandardMaterial
+            color={doorColor}
+            roughness={entranceStyle === "glass" ? 0.24 : 0.72}
+            metalness={entranceStyle === "glass" ? 0.3 : 0}
+            transparent={entranceStyle === "glass"}
+            opacity={entranceStyle === "glass" ? 0.72 : 1}
+          />
+        </mesh>
+        <mesh position={[doorW / 2 - 0.06, 1.02, 0.058]}>
+          <boxGeometry args={[doorW - 0.34, 1.34, 0.025]} />
+          <meshStandardMaterial
+            color={doorInner}
+            roughness={0.35}
+            transparent={entranceStyle === "glass"}
+            opacity={entranceStyle === "glass" ? 0.42 : 1}
+          />
+        </mesh>
+        {entranceStyle === "lattice" &&
+          [-0.25, 0, 0.25].map((ox) => (
+            <mesh key={ox} position={[doorW / 2 - 0.06 + ox, 1.02, 0.08]}>
+              <boxGeometry args={[0.045, 1.3, 0.035]} />
+              <meshStandardMaterial color="#c8b898" />
+            </mesh>
+          ))}
+        <mesh position={[doorW - 0.25, 0.94, 0.09]}>
+          <sphereGeometry args={[0.045, 10, 8]} />
+          <meshStandardMaterial color="#c9a84a" metalness={0.55} roughness={0.25} />
+        </mesh>
+      </group>
+      <SpriteLabel
+        kind="bubble"
+        text="入口"
+        position={[entranceX, 2.38, frontZ + 0.05]}
+        scale={[0.82, 0.28, 1]}
+      />
+      {/* back windows */}
+      {[centerX - activeW * 0.28, centerX, centerX + activeW * 0.28].map((x, i) => (
+        <WindowPane key={i} position={[x, 1.55, rearZ + 0.12]} size={[1.15, 0.85, 0.06]} trim={trim} />
       ))}
       {/* striped awning */}
-      <mesh position={[0, ROOM.wallH + 0.25, -hd - 0.35]} castShadow>
-        <boxGeometry args={[ROOM.w + 0.6, 0.08, 0.9]} />
+      <mesh position={[centerX, ROOM.wallH + 0.25, rearZ - 0.35]} castShadow>
+        <boxGeometry args={[activeW + 0.6, 0.08, 0.9]} />
         <meshStandardMaterial color="#2f8f5b" roughness={0.7} flatShading />
       </mesh>
-      <mesh position={[0, ROOM.wallH + 0.18, -hd - 0.7]} castShadow>
-        <boxGeometry args={[ROOM.w + 0.4, 0.35, 0.08]} />
+      <mesh position={[centerX, ROOM.wallH + 0.18, rearZ - 0.7]} castShadow>
+        <boxGeometry args={[activeW + 0.4, 0.35, 0.08]} />
         <meshStandardMaterial color="#247a4c" flatShading />
       </mesh>
-      {[-4, -2, 0, 2, 4].map((x, i) => (
-        <mesh key={i} position={[x, ROOM.wallH + 0.26, -hd - 0.35]}>
-          <boxGeometry args={[0.35, 0.09, 0.92]} />
+      {[-0.36, -0.18, 0, 0.18, 0.36].map((ratio, i) => (
+        <mesh key={i} position={[centerX + activeW * ratio, ROOM.wallH + 0.26, rearZ - 0.35]}>
+          <boxGeometry args={[Math.max(0.28, activeW * 0.04), 0.09, 0.92]} />
           <meshStandardMaterial color="#f4f0e8" flatShading />
         </mesh>
       ))}
       {/* front entrance awning */}
-      <mesh position={[hw - 1.5, 2.05, hd + 0.35]} castShadow>
-        <boxGeometry args={[1.6, 0.06, 0.7]} />
+      <mesh position={[entranceX, 2.1, frontZ + 0.36]} castShadow>
+        <boxGeometry args={[1.72, 0.06, 0.72]} />
         <meshStandardMaterial color="#2f6f9b" flatShading />
       </mesh>
       {[-0.45, 0, 0.45].map((ox, i) => (
-        <mesh key={i} position={[hw - 1.5 + ox, 2.06, hd + 0.35]}>
+        <mesh key={i} position={[entranceX + ox, 2.11, frontZ + 0.36]}>
           <boxGeometry args={[0.28, 0.07, 0.72]} />
           <meshStandardMaterial color="#e8f0f4" flatShading />
         </mesh>
       ))}
       {/* shop sign */}
-      <group position={[0, ROOM.wallH + 0.85, -hd - 0.2]}>
+      <group position={[centerX, ROOM.wallH + 0.85, rearZ - 0.2]}>
         <mesh castShadow>
           <boxGeometry args={[3.2, 0.7, 0.12]} />
           <meshStandardMaterial color="#1e2a24" flatShading />
@@ -579,8 +674,8 @@ function CutawayBuilding({
         </mesh>
         <ShopSignPlane title={restaurantName} subtitle={locationLabel} position={[0, 0, 0.08]} />
       </group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0.4, -0.01, 0.4]}>
-        <planeGeometry args={[ROOM.w + 1.5, ROOM.d + 1.5]} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[centerX + 0.35, -0.01, centerZ + 0.35]}>
+        <planeGeometry args={[activeW + 1.5, activeD + 1.5]} />
         <meshStandardMaterial color="#0a0806" transparent opacity={0.2} depthWrite={false} />
       </mesh>
     </group>
@@ -1017,6 +1112,7 @@ export function BuildingShell({
         restaurantName={restaurantName}
         wallStyle={wallStyle}
         entranceStyle={entranceStyle}
+        expansionLevel={expansionLevel}
       />
       <StreetAndNeighbors />
       <mesh position={[0, 6, -12]}>

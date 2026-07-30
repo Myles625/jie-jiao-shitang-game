@@ -12,7 +12,14 @@ import {
 } from "./economy";
 import { rollDailyEvent } from "./events";
 import { calendarFromDay, getLocation, pickTaste } from "./locations";
-import { entranceCell, findPath, nearestStandSpot, queueCell, stepAlongPath } from "./pathfinding";
+import {
+  entranceCell,
+  entranceOutsideCell,
+  findPath,
+  nearestStandSpot,
+  queueCell,
+  stepAlongPath,
+} from "./pathfinding";
 import type { CellItem, DaySummary, ExpansionLevel, GameState, Guest, Staff, Task, TaskKind, Vec2 } from "./types";
 import { SECRET_DISH_NAME } from "./types";
 
@@ -152,6 +159,39 @@ function setPathTo(
   return path.length > 0 || Math.hypot(ent.x - goal.x, ent.y - goal.y) < 0.35;
 }
 
+/** 排队顾客沿门外候位线走到门前，只能从实体入口进入餐厅。 */
+function setPathThroughEntrance(
+  items: CellItem[],
+  ent: { x: number; y: number; path: Vec2[] },
+  goal: Vec2,
+  expansionLevel: ExpansionLevel,
+): boolean {
+  const outside = entranceOutsideCell(expansionLevel);
+  const inside = entranceCell(expansionLevel);
+  const insidePath = findPath(items, inside, goal, { expansionLevel });
+  if (!insidePath.length && Math.hypot(inside.x - goal.x, inside.y - goal.y) >= 0.35) return false;
+  ent.path = [
+    ...(Math.hypot(ent.x - outside.x, ent.y - outside.y) >= 0.05 ? [outside] : []),
+    inside,
+    ...insidePath,
+  ];
+  return true;
+}
+
+/** 离店时穿过同一扇门，并在门外一格退出场景。 */
+function setExitPath(
+  items: CellItem[],
+  ent: { x: number; y: number; path: Vec2[] },
+  expansionLevel: ExpansionLevel,
+): boolean {
+  const inside = entranceCell(expansionLevel);
+  const outside = entranceOutsideCell(expansionLevel);
+  const path = findPath(items, { x: ent.x, y: ent.y }, inside, { expansionLevel });
+  if (!path.length && Math.hypot(ent.x - inside.x, ent.y - inside.y) >= 0.35) return false;
+  ent.path = [...path, outside];
+  return true;
+}
+
 function arrived(ent: { x: number; y: number; path: Vec2[] }, goal?: Vec2 | null): boolean {
   if (!goal) return ent.path.length === 0;
   return ent.path.length === 0 && Math.hypot(ent.x - goal.x, ent.y - goal.y) < 0.35;
@@ -175,7 +215,7 @@ function taskTarget(state: GameState, task: Task): Vec2 | null {
   if (!guest) return null;
   const items = state.items;
 
-  if (task.kind === "seat") return queueCell(0, state.expansionLevel);
+  if (task.kind === "seat") return entranceCell(state.expansionLevel);
   if (task.kind === "takeOrder" || task.kind === "serve") {
     const table = items.find((i) => i.id === guest.tableId);
     if (!table) return null;
@@ -264,7 +304,7 @@ function completeTask(state: GameState, task: Task, worker: Staff): void {
       table.y,
       state.expansionLevel,
     );
-    if (seat) setPathTo(state.items, guest, seat, state.expansionLevel);
+    if (seat) setPathThroughEntrance(state.items, guest, seat, state.expansionLevel);
     else {
       guest.x = table.x;
       guest.y = table.y;
@@ -367,7 +407,7 @@ function finishGuest(state: GameState, guest: Guest): void {
   guest.stage = "leaving";
   guest.tableId = undefined;
   guest.taskQueued = false;
-  setPathTo(state.items, guest, entranceCell(state.expansionLevel), state.expansionLevel);
+  setExitPath(state.items, guest, state.expansionLevel);
 }
 
 function wanderIdle(state: GameState, s: Staff): void {
@@ -536,7 +576,7 @@ function advanceGuests(state: GameState, speed: number): void {
     moveEntity(state.items, guest, 0.7 * Math.max(1, speed));
 
     if (guest.stage === "leaving") {
-      if (arrived(guest, entranceCell(state.expansionLevel)) || guest.path.length === 0) leaving.push(guest.id);
+      if (arrived(guest, entranceOutsideCell(state.expansionLevel)) || guest.path.length === 0) leaving.push(guest.id);
       continue;
     }
 
@@ -585,7 +625,7 @@ function advanceGuests(state: GameState, speed: number): void {
         for (const s of state.staff) {
           if (s.taskId && !state.tasks.some((t) => t.id === s.taskId)) s.taskId = undefined;
         }
-        setPathTo(state.items, guest, entranceCell(state.expansionLevel), state.expansionLevel);
+        setExitPath(state.items, guest, state.expansionLevel);
       }
       continue;
     }

@@ -132,11 +132,19 @@ export function entranceCell(level: ExpansionLevel = 0): Vec2 {
   return { x: Math.floor((b.minX + b.maxX + 1) / 2), y: b.maxY };
 }
 
+/** 门外第一格。顾客必须先走到这里，再穿过 entranceCell 对应的实体门。 */
+export function entranceOutsideCell(level: ExpansionLevel = 0): Vec2 {
+  const inside = entranceCell(level);
+  return { x: inside.x, y: inside.y + 1 };
+}
+
 export function queueCell(index: number, level: ExpansionLevel = 0): Vec2 {
-  // Outside along bottom edge, slightly right of entrance conceptually (same grid, bottom row)
-  const base = entranceCell(level);
+  const outside = entranceOutsideCell(level);
   const b = shopBounds(level);
-  return { x: Math.min(b.maxX, base.x + 1 + (index % 3)), y: base.y };
+  const offsets = [1, 2, 3, -1, -2, -3, 0];
+  const row = Math.floor(index / offsets.length);
+  const x = Math.max(b.minX, Math.min(b.maxX, outside.x + offsets[index % offsets.length]));
+  return { x, y: outside.y + row };
 }
 
 export function stepAlongPath(

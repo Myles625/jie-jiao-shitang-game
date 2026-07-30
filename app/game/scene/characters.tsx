@@ -18,9 +18,12 @@ import { SpriteLabel } from "./labels";
 /** 与 page.tsx setInterval 一致：逻辑每 500ms 推进一步 */
 const SIM_TICK_SEC = 0.5;
 const WALK_COLUMNS = 3;
+const WALK_SEQUENCE = [0, 1, 2, 1] as const;
+const WALK_FPS = 8;
 const ATLAS_PROMISES = new Map<string, Promise<Texture>>();
 
 const STAGE_BUBBLE: Partial<Record<GuestStage, string>> = {
+  queue: "候位",
   order: "点餐",
   waitingCook: "等菜",
   waitingServe: "待上",
@@ -39,7 +42,7 @@ const TASK_LABEL: Record<TaskKind, string> = {
 };
 
 const SEATED = new Set<GuestStage>(["seating", "order", "waitingCook", "waitingServe", "eat", "pay"]);
-type WalkState = { moving: boolean; phase: number };
+type WalkState = { moving: boolean; phase: number; facing: -1 | 1 };
 
 function cloneAtlas(source: Texture, rows: number): Texture {
   const texture = source.clone();
@@ -112,15 +115,20 @@ function AnimatedPersonSprite({
   useFrame(() => {
     if (!texture) return;
     const moving = walkRef.current.moving && !seated;
-    const frame = moving ? Math.floor(walkRef.current.phase / 2.5) % WALK_COLUMNS : 1;
+    const frame = moving
+      ? WALK_SEQUENCE[Math.floor(walkRef.current.phase * WALK_FPS) % WALK_SEQUENCE.length]
+      : 1;
     texture.offset.set(frame / WALK_COLUMNS, 1 - (safeRow + 1) / rows);
     if (sprite.current) {
-      const bob = moving ? Math.abs(Math.sin(walkRef.current.phase)) * 0.035 : 0;
+      const stride = Math.sin(walkRef.current.phase * Math.PI * 4);
+      const bob = moving ? Math.abs(stride) * 0.055 : 0;
       sprite.current.position.y = (seated ? 0.66 : 0.76) + bob;
+      sprite.current.rotation.z = moving ? stride * 0.025 : 0;
+      sprite.current.scale.x = walkRef.current.facing;
     }
   });
 
-  const height = seated ? 1.18 : 1.52;
+  const height = seated ? 1.18 : 1.62;
   const width = height * (rows === 4 ? 1.33 : 2);
 
   return (
@@ -191,6 +199,7 @@ function MovingActor({
     tx: x,
     ty: y,
     segSpeed: 0,
+    walkTail: 0,
     ready: false,
   });
 
@@ -221,6 +230,7 @@ function MovingActor({
     const dx = m.tx - m.vx;
     const dy = m.ty - m.vy;
     const dist = Math.hypot(dx, dy);
+    if (Math.abs(dx) > 0.015) walkRef.current.facing = dx > 0 ? 1 : -1;
     const arriveSnap = pathLen === 0 && dist < 0.06;
     if (dist < 1e-4 || arriveSnap) {
       m.vx = m.tx;
@@ -233,14 +243,17 @@ function MovingActor({
         m.vx = m.tx;
         m.vy = m.ty;
         m.segSpeed = 0;
+        m.walkTail = 0.18;
       } else {
         m.vx += (dx / dist) * step;
         m.vy += (dy / dist) * step;
+        m.walkTail = 0.22;
       }
     }
 
-    walkRef.current.moving = m.segSpeed > 0.02 && !seated;
-    if (walkRef.current.moving) walkRef.current.phase += clampedDt * 10;
+    m.walkTail = Math.max(0, m.walkTail - clampedDt);
+    walkRef.current.moving = !seated && (m.segSpeed > 0.02 || m.walkTail > 0);
+    if (walkRef.current.moving) walkRef.current.phase += clampedDt;
     const w = gridToWorld(m.vx, m.vy);
     group.current?.position.set(w.x, 0, w.z);
   });
@@ -266,7 +279,7 @@ function ActorWithWalk(props: {
   carrying?: boolean;
   overlay?: ReactNode;
 }) {
-  const walkRef = useRef<WalkState>({ moving: false, phase: 0 });
+  const walkRef = useRef<WalkState>({ moving: false, phase: 0, facing: 1 });
   return (
     <MovingActor
       x={props.x}
@@ -309,7 +322,6 @@ export function ActorsLayer({
   return (
     <group>
       {guests.map((guest) => {
-        if (guest.stage === "queue") return null;
         const moving = guest.path.length > 0;
         const seated = guest.tableId != null && !moving && SEATED.has(guest.stage);
         const task = taskByGuest.get(guest.id);

@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { computeDayCosts, dailyGoalFor } from "../app/game/economy";
 import { createInitialState } from "../app/game/save";
-import { entranceCell, findPath, isUnlockedCell, shopBounds } from "../app/game/pathfinding";
+import {
+  entranceCell,
+  entranceOutsideCell,
+  findPath,
+  isUnlockedCell,
+  queueCell,
+  shopBounds,
+} from "../app/game/pathfinding";
 import { closeDay, tick } from "../app/game/simulation";
 
 function withSeed<T>(seed: number, run: () => T): T {
@@ -101,4 +108,15 @@ test("寻路和入口会随扩建边界外移", () => {
   assert.deepEqual(entranceCell(2), { x: 8, y: 11 });
   assert.equal(findPath(state.items, entranceCell(0), { x: 1, y: 1 }, { expansionLevel: 0 }).length, 0);
   assert.ok(findPath(state.items, entranceCell(2), { x: 1, y: 1 }, { expansionLevel: 2 }).length > 0);
+});
+
+test("顾客在门外候位并从唯一入口进入", () => {
+  const state = createInitialState();
+  const bounds = shopBounds(0);
+  assert.deepEqual(entranceOutsideCell(0), { x: 8, y: 10 });
+  assert.ok(queueCell(0, 0).y > bounds.maxY);
+  assert.ok(queueCell(4, 0).y > bounds.maxY);
+  assert.ok(
+    findPath(state.items, entranceOutsideCell(0), entranceCell(0), { expansionLevel: 0 }).length > 0,
+  );
 });
