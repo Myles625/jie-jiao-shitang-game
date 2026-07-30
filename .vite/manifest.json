@@ -6,34 +6,34 @@
       "_rolldown-runtime-S-ySWqyJ.js"
     ]
   },
+  "_pathfinding-Bk8JmEZa.js": {
+    "file": "assets/pathfinding-Bk8JmEZa.js",
+    "name": "pathfinding"
+  },
   "_rolldown-runtime-S-ySWqyJ.js": {
     "file": "assets/rolldown-runtime-S-ySWqyJ.js",
     "name": "rolldown-runtime"
   },
-  "_types-9ONgI4nh.js": {
-    "file": "assets/types-9ONgI4nh.js",
-    "name": "types"
-  },
   "app/game/scene/RestaurantScene.tsx": {
-    "file": "assets/RestaurantScene-RfbCSNwf.js",
+    "file": "assets/RestaurantScene-B6eEBhyE.js",
     "name": "RestaurantScene",
     "src": "app/game/scene/RestaurantScene.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_rolldown-runtime-S-ySWqyJ.js",
-      "_types-9ONgI4nh.js",
+      "_pathfinding-Bk8JmEZa.js",
       "_framework-DC_sNd-Z.js"
     ]
   },
   "app/page.tsx": {
-    "file": "assets/page-D9qs0ltT.js",
+    "file": "assets/page-DgNusUwg.js",
     "name": "page",
     "src": "app/page.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_rolldown-runtime-S-ySWqyJ.js",
       "virtual:vinext-app-browser-entry",
-      "_types-9ONgI4nh.js",
+      "_pathfinding-Bk8JmEZa.js",
       "_framework-DC_sNd-Z.js"
     ],
     "dynamicImports": [
@@ -41,7 +41,7 @@
     ]
   },
   "node_modules/.pnpm/vinext@0.0.50_@vitejs+plugin-react@6.0.2_vite@8.0.13_@types+node@22.19.19_esbuild@0.28._e4ae96fc73b3a0140a6915388c4913a8/node_modules/vinext/dist/shims/layout-segment-context.js": {
-    "file": "assets/layout-segment-context-C39gPYgq.js",
+    "file": "assets/layout-segment-context-DHSH0thI.js",
     "name": "layout-segment-context",
     "src": "node_modules/.pnpm/vinext@0.0.50_@vitejs+plugin-react@6.0.2_vite@8.0.13_@types+node@22.19.19_esbuild@0.28._e4ae96fc73b3a0140a6915388c4913a8/node_modules/vinext/dist/shims/layout-segment-context.js",
     "isDynamicEntry": true,
@@ -52,7 +52,7 @@
     ]
   },
   "virtual:vinext-app-browser-entry": {
-    "file": "assets/index-CkKKfWap.js",
+    "file": "assets/index-Ch-KnLTy.js",
     "name": "index",
     "src": "virtual:vinext-app-browser-entry",
     "isEntry": true,

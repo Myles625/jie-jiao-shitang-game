@@ -1,1 +1,0 @@
-var e=`sapphire-restaurant-save`,t=`corner-bistro-save`,n=`蓝宝石餐厅`,r=`蓝宝石秘传锅`;export{r as i,t as n,e as r,n as t};
