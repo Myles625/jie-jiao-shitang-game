@@ -6,8 +6,8 @@
       "_rolldown-runtime-S-ySWqyJ.js"
     ]
   },
-  "_pathfinding-Bk8JmEZa.js": {
-    "file": "assets/pathfinding-Bk8JmEZa.js",
+  "_pathfinding-CDKu8fT1.js": {
+    "file": "assets/pathfinding-CDKu8fT1.js",
     "name": "pathfinding"
   },
   "_rolldown-runtime-S-ySWqyJ.js": {
@@ -15,25 +15,25 @@
     "name": "rolldown-runtime"
   },
   "app/game/scene/RestaurantScene.tsx": {
-    "file": "assets/RestaurantScene-DriIgMkw.js",
+    "file": "assets/RestaurantScene-BBaEWvBt.js",
     "name": "RestaurantScene",
     "src": "app/game/scene/RestaurantScene.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_rolldown-runtime-S-ySWqyJ.js",
-      "_pathfinding-Bk8JmEZa.js",
+      "_pathfinding-CDKu8fT1.js",
       "_framework-DC_sNd-Z.js"
     ]
   },
   "app/page.tsx": {
-    "file": "assets/page-CDc228ep.js",
+    "file": "assets/page-McAdXIWp.js",
     "name": "page",
     "src": "app/page.tsx",
     "isDynamicEntry": true,
     "imports": [
       "_rolldown-runtime-S-ySWqyJ.js",
       "virtual:vinext-app-browser-entry",
-      "_pathfinding-Bk8JmEZa.js",
+      "_pathfinding-CDKu8fT1.js",
       "_framework-DC_sNd-Z.js"
     ],
     "dynamicImports": [
@@ -41,7 +41,7 @@
     ]
   },
   "node_modules/.pnpm/vinext@0.0.50_@vitejs+plugin-react@6.0.2_vite@8.0.13_@types+node@22.19.19_esbuild@0.28._e4ae96fc73b3a0140a6915388c4913a8/node_modules/vinext/dist/shims/layout-segment-context.js": {
-    "file": "assets/layout-segment-context-CN8SEphd.js",
+    "file": "assets/layout-segment-context-CyrNcrSd.js",
     "name": "layout-segment-context",
     "src": "node_modules/.pnpm/vinext@0.0.50_@vitejs+plugin-react@6.0.2_vite@8.0.13_@types+node@22.19.19_esbuild@0.28._e4ae96fc73b3a0140a6915388c4913a8/node_modules/vinext/dist/shims/layout-segment-context.js",
     "isDynamicEntry": true,
@@ -52,7 +52,7 @@
     ]
   },
   "virtual:vinext-app-browser-entry": {
-    "file": "assets/index-z1SlYU4W.js",
+    "file": "assets/index-D1otdeNQ.js",
     "name": "index",
     "src": "virtual:vinext-app-browser-entry",
     "isEntry": true,
