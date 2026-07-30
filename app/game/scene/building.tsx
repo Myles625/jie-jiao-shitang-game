@@ -1,0 +1,846 @@
+"use client";
+
+import { useFrame } from "@react-three/fiber";
+import { useMemo, useRef, type ReactNode } from "react";
+import * as THREE from "three";
+import { H, W, type EntranceStyle, type FloorStyle, type WallStyle } from "../types";
+import { CELL, gridToWorld, isKitchenZone, ROOM } from "./coords";
+import { KanbanPlane, ShopSignPlane } from "./labels";
+
+function nearestTex(draw: (ctx: CanvasRenderingContext2D, s: number) => void, size = 64) {
+  const c = document.createElement("canvas");
+  c.width = size;
+  c.height = size;
+  const ctx = c.getContext("2d")!;
+  draw(ctx, size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.magFilter = THREE.NearestFilter;
+  tex.minFilter = THREE.NearestFilter;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+function makeWoodTexture() {
+  const tex = nearestTex((ctx, s) => {
+    ctx.fillStyle = "#8a5a32";
+    ctx.fillRect(0, 0, s, s);
+    for (let i = 0; i < 8; i++) {
+      ctx.fillStyle = i % 2 ? "#7a4e2a" : "#965f38";
+      ctx.fillRect(i * (s / 8), 0, s / 8 - 1, s);
+      ctx.fillStyle = "rgba(40,20,8,0.35)";
+      ctx.fillRect(i * (s / 8) + s / 16, 0, 1, s);
+    }
+    // end grain dots
+    for (let i = 0; i < 20; i++) {
+      ctx.fillStyle = "rgba(60,30,10,0.2)";
+      ctx.fillRect((i * 17) % s, (i * 29) % s, 2, 2);
+    }
+  }, 64);
+  tex.repeat.set(W / 2, H / 2);
+  return tex;
+}
+
+function makeTileTexture() {
+  const tex = nearestTex((ctx, s) => {
+    ctx.fillStyle = "#e8ece8";
+    ctx.fillRect(0, 0, s, s);
+    ctx.strokeStyle = "#b8c0bc";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(1, 1, s - 2, s - 2);
+    ctx.fillStyle = "#f2f4f2";
+    ctx.fillRect(4, 4, s / 2 - 4, s / 2 - 4);
+    ctx.fillStyle = "#dce4e0";
+    ctx.fillRect(s / 2 + 2, s / 2 + 2, s / 2 - 6, s / 2 - 6);
+  }, 32);
+  tex.repeat.set(4, 3);
+  return tex;
+}
+
+function makeBrickTexture(base: string, mortar = "#d8d0c4") {
+  return nearestTex((ctx, s) => {
+    ctx.fillStyle = mortar;
+    ctx.fillRect(0, 0, s, s);
+    const rows = 8;
+    const cols = 4;
+    const bh = s / rows;
+    const bw = s / cols;
+    for (let r = 0; r < rows; r++) {
+      const off = r % 2 ? bw / 2 : 0;
+      for (let c = -1; c <= cols; c++) {
+        const shade = (r + c) % 3 === 0 ? 0.92 : (r + c) % 3 === 1 ? 1 : 0.85;
+        ctx.fillStyle = shadeColor(base, shade);
+        ctx.fillRect(c * bw + off + 1, r * bh + 1, bw - 2, bh - 2);
+      }
+    }
+  }, 64);
+}
+
+function makeStuccoTexture(base: string) {
+  return nearestTex((ctx, s) => {
+    ctx.fillStyle = base;
+    ctx.fillRect(0, 0, s, s);
+    for (let i = 0; i < 80; i++) {
+      ctx.fillStyle = i % 2 ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)";
+      ctx.fillRect((i * 13) % s, (i * 29) % s, 2 + (i % 3), 2);
+    }
+    // panel lines
+    ctx.strokeStyle = "rgba(60,40,20,0.18)";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(2, 2, s - 4, s - 4);
+    ctx.beginPath();
+    ctx.moveTo(s / 2, 0);
+    ctx.lineTo(s / 2, s);
+    ctx.stroke();
+  }, 64);
+}
+
+function shadeColor(hex: string, mul: number) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = Math.min(255, Math.round(((n >> 16) & 255) * mul));
+  const g = Math.min(255, Math.round(((n >> 8) & 255) * mul));
+  const b = Math.min(255, Math.round((n & 255) * mul));
+  return `rgb(${r},${g},${b})`;
+}
+
+function FloorTiles({
+  buildable,
+  onCellClick,
+  floorStyle,
+}: {
+  buildable: boolean;
+  onCellClick: (x: number, y: number) => void;
+  floorStyle: FloorStyle;
+}) {
+  const wood = useMemo(() => makeWoodTexture(), []);
+  const tile = useMemo(() => makeTileTexture(), []);
+  const carpet = useMemo(
+    () =>
+      nearestTex((ctx, s) => {
+        ctx.fillStyle = "#6a3a48";
+        ctx.fillRect(0, 0, s, s);
+        for (let y = 0; y < 8; y++) {
+          for (let x = 0; x < 8; x++) {
+            if ((x + y) % 2 === 0) {
+              ctx.fillStyle = "#7a4a58";
+              ctx.fillRect(x * 8, y * 8, 8, 8);
+            }
+          }
+        }
+      }, 64),
+    [],
+  );
+  carpet.repeat.set(W / 2, H / 2);
+
+  return (
+    <group>
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[0, 0, 0]}
+        receiveShadow
+        onClick={(e) => {
+          e.stopPropagation();
+          const gx = Math.round(e.point.x / CELL + (W - 1) / 2);
+          const gy = Math.round(e.point.z / CELL + (H - 1) / 2);
+          if (gx >= 0 && gx < W && gy >= 0 && gy < H) onCellClick(gx, gy);
+        }}
+        onPointerMove={(e) => {
+          if (buildable) e.stopPropagation();
+        }}
+      >
+        <planeGeometry args={[ROOM.w, ROOM.d]} />
+        {floorStyle === "carpet" ? (
+          <meshStandardMaterial map={carpet} roughness={0.95} />
+        ) : floorStyle === "tile" ? (
+          <meshStandardMaterial map={tile} roughness={0.85} />
+        ) : (
+          <meshStandardMaterial map={wood} roughness={0.9} />
+        )}
+      </mesh>
+      {/* kitchen tile overlay */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[gridToWorld(1.5, 1).x, 0.008, gridToWorld(1.5, 1).z]} receiveShadow>
+        <planeGeometry args={[4.05, 3.05]} />
+        <meshStandardMaterial map={tile} roughness={0.7} />
+      </mesh>
+      {/* baseboard ring hint */}
+      <mesh position={[0, 0.04, -ROOM.d / 2 + 0.14]}>
+        <boxGeometry args={[ROOM.w - 0.2, 0.08, 0.06]} />
+        <meshStandardMaterial color="#6a4a30" roughness={0.85} flatShading />
+      </mesh>
+      {buildable &&
+        Array.from({ length: W * H }, (_, n) => {
+          const x = n % W;
+          const y = Math.floor(n / W);
+          const p = gridToWorld(x, y);
+          const kit = isKitchenZone(x, y);
+          return (
+            <mesh
+              key={n}
+              rotation={[-Math.PI / 2, 0, 0]}
+              position={[p.x, 0.02, p.z]}
+              onClick={(e) => {
+                e.stopPropagation();
+                onCellClick(x, y);
+              }}
+            >
+              <planeGeometry args={[0.92, 0.92]} />
+              <meshStandardMaterial
+                color={kit ? "#a8c8d8" : "#d4c48a"}
+                transparent
+                opacity={0.22}
+                depthWrite={false}
+              />
+            </mesh>
+          );
+        })}
+    </group>
+  );
+}
+
+function WindowPane({
+  position,
+  size = [1.0, 0.7, 0.05] as [number, number, number],
+  trim = "#8a6a42",
+}: {
+  position: [number, number, number];
+  size?: [number, number, number];
+  trim?: string;
+}) {
+  const [w, h, d] = size;
+  return (
+    <group position={position}>
+      <mesh castShadow>
+        <boxGeometry args={[w, h, d]} />
+        <meshStandardMaterial color="#7ec8e8" emissive="#3a6a88" emissiveIntensity={0.22} transparent opacity={0.82} flatShading />
+      </mesh>
+      {/* muntins */}
+      <mesh position={[0, 0, d / 2 + 0.01]}>
+        <boxGeometry args={[0.04, h, 0.02]} />
+        <meshStandardMaterial color={trim} flatShading />
+      </mesh>
+      <mesh position={[0, 0, d / 2 + 0.01]}>
+        <boxGeometry args={[w, 0.04, 0.02]} />
+        <meshStandardMaterial color={trim} flatShading />
+      </mesh>
+      {/* frame */}
+      <mesh position={[0, h / 2 + 0.03, 0]}>
+        <boxGeometry args={[w + 0.08, 0.06, d + 0.02]} />
+        <meshStandardMaterial color={trim} flatShading />
+      </mesh>
+      <mesh position={[0, -h / 2 - 0.03, 0]}>
+        <boxGeometry args={[w + 0.08, 0.06, d + 0.02]} />
+        <meshStandardMaterial color={trim} flatShading />
+      </mesh>
+    </group>
+  );
+}
+
+function CutawayBuilding({
+  locationLabel,
+  restaurantName,
+  wallStyle,
+  entranceStyle,
+}: {
+  locationLabel: string;
+  restaurantName: string;
+  wallStyle: WallStyle;
+  entranceStyle: EntranceStyle;
+}) {
+  const hw = ROOM.w / 2;
+  const hd = ROOM.d / 2;
+  const wallColor = wallStyle === "brick" ? "#a87858" : wallStyle === "panel" ? "#d8c8a8" : "#c9b896";
+  const trim = wallStyle === "panel" ? "#5a4030" : "#8a6a42";
+  const doorColor = entranceStyle === "glass" ? "#7ec8e8" : entranceStyle === "lattice" ? "#3a5a40" : "#6b4428";
+  const doorInner = entranceStyle === "glass" ? "#a8e0f4" : entranceStyle === "lattice" ? "#2a4030" : "#4a3020";
+
+  const wallMap = useMemo(() => {
+    if (wallStyle === "brick") {
+      const t = makeBrickTexture("#a87858");
+      t.repeat.set(6, 3);
+      return t;
+    }
+    const t = makeStuccoTexture(wallColor);
+    t.repeat.set(4, 2);
+    return t;
+  }, [wallStyle, wallColor]);
+
+  return (
+    <group>
+      {/* back wall */}
+      <mesh position={[0, ROOM.wallH / 2, -hd]} castShadow receiveShadow>
+        <boxGeometry args={[ROOM.w + 0.3, ROOM.wallH, 0.22]} />
+        <meshStandardMaterial map={wallMap} color={wallColor} roughness={0.88} flatShading />
+      </mesh>
+      {/* wainscot */}
+      <mesh position={[0, 0.45, -hd + 0.12]} castShadow>
+        <boxGeometry args={[ROOM.w + 0.1, 0.9, 0.04]} />
+        <meshStandardMaterial color="#8a6a42" roughness={0.8} flatShading />
+      </mesh>
+      <mesh position={[0, 0.92, -hd + 0.13]}>
+        <boxGeometry args={[ROOM.w + 0.1, 0.06, 0.05]} />
+        <meshStandardMaterial color="#6a4a30" flatShading />
+      </mesh>
+      {/* top lip */}
+      <mesh position={[0, ROOM.wallH + 0.05, -hd + 0.05]} castShadow>
+        <boxGeometry args={[ROOM.w + 0.4, 0.12, 0.35]} />
+        <meshStandardMaterial color={trim} roughness={0.8} flatShading />
+      </mesh>
+      {/* left wall */}
+      <mesh position={[-hw, ROOM.cutH / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.22, ROOM.cutH, ROOM.d]} />
+        <meshStandardMaterial map={wallMap} color={wallColor} roughness={0.88} flatShading />
+      </mesh>
+      <mesh position={[-hw + 0.12, 0.45, 0]} castShadow>
+        <boxGeometry args={[0.04, 0.9, ROOM.d - 0.2]} />
+        <meshStandardMaterial color="#8a6a42" flatShading />
+      </mesh>
+      <mesh position={[-hw, ROOM.cutH + 0.04, -hd / 2]} castShadow>
+        <boxGeometry args={[0.28, 0.1, ROOM.d / 2 + 0.2]} />
+        <meshStandardMaterial color={trim} flatShading />
+      </mesh>
+      {/* right wall */}
+      <mesh position={[hw, ROOM.cutH / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[0.22, ROOM.cutH, ROOM.d]} />
+        <meshStandardMaterial
+          map={wallMap}
+          color={wallStyle === "brick" ? "#986848" : "#b8a888"}
+          roughness={0.88}
+          flatShading
+        />
+      </mesh>
+      {/* front stub walls */}
+      <mesh position={[-hw / 2 - 1.2, 0.55, hd]} castShadow receiveShadow>
+        <boxGeometry args={[ROOM.w / 2 - 1.4, 1.1, 0.2]} />
+        <meshStandardMaterial map={wallMap} color={wallColor} roughness={0.88} flatShading />
+      </mesh>
+      <mesh position={[hw / 2 + 1.2, 0.55, hd]} castShadow receiveShadow>
+        <boxGeometry args={[ROOM.w / 2 - 1.4, 1.1, 0.2]} />
+        <meshStandardMaterial map={wallMap} color={wallColor} roughness={0.88} flatShading />
+      </mesh>
+      {/* door */}
+      <mesh position={[hw - 1.5, 0.95, hd]} castShadow>
+        <boxGeometry args={[1.1, 1.9, 0.12]} />
+        <meshStandardMaterial
+          color={doorColor}
+          roughness={entranceStyle === "glass" ? 0.25 : 0.75}
+          metalness={entranceStyle === "glass" ? 0.35 : 0}
+          transparent={entranceStyle === "glass"}
+          opacity={entranceStyle === "glass" ? 0.75 : 1}
+          flatShading
+        />
+      </mesh>
+      <mesh position={[hw - 1.5, 0.95, hd + 0.04]}>
+        <boxGeometry args={[0.85, 1.65, 0.06]} />
+        <meshStandardMaterial
+          color={doorInner}
+          roughness={entranceStyle === "glass" ? 0.2 : 0.7}
+          transparent={entranceStyle === "glass"}
+          opacity={entranceStyle === "glass" ? 0.55 : 1}
+          flatShading
+        />
+      </mesh>
+      {entranceStyle === "lattice" &&
+        [-0.2, 0, 0.2].map((ox, i) => (
+          <mesh key={i} position={[hw - 1.5 + ox, 0.95, hd + 0.08]}>
+            <boxGeometry args={[0.05, 1.5, 0.04]} />
+            <meshStandardMaterial color="#c8b898" flatShading />
+          </mesh>
+        ))}
+      {/* door handle */}
+      <mesh position={[hw - 1.15, 0.95, hd + 0.1]}>
+        <boxGeometry args={[0.04, 0.12, 0.04]} />
+        <meshStandardMaterial color="#c9a84a" metalness={0.5} flatShading />
+      </mesh>
+      {/* back windows */}
+      {[-3.5, 0, 3.5].map((x, i) => (
+        <WindowPane key={i} position={[x, 1.55, -hd + 0.12]} size={[1.15, 0.85, 0.06]} trim={trim} />
+      ))}
+      {/* wall picture frames / lattice trim */}
+      {[-2, 2].map((x, i) => (
+        <mesh key={`frame-${i}`} position={[x, 1.15, -hd + 0.14]}>
+          <boxGeometry args={[0.7, 0.08, 0.03]} />
+          <meshStandardMaterial color={trim} flatShading />
+        </mesh>
+      ))}
+      {/* striped awning */}
+      <mesh position={[0, ROOM.wallH + 0.25, -hd - 0.35]} castShadow>
+        <boxGeometry args={[ROOM.w + 0.6, 0.08, 0.9]} />
+        <meshStandardMaterial color="#2f8f5b" roughness={0.7} flatShading />
+      </mesh>
+      <mesh position={[0, ROOM.wallH + 0.18, -hd - 0.7]} castShadow>
+        <boxGeometry args={[ROOM.w + 0.4, 0.35, 0.08]} />
+        <meshStandardMaterial color="#247a4c" flatShading />
+      </mesh>
+      {[-4, -2, 0, 2, 4].map((x, i) => (
+        <mesh key={i} position={[x, ROOM.wallH + 0.26, -hd - 0.35]}>
+          <boxGeometry args={[0.35, 0.09, 0.92]} />
+          <meshStandardMaterial color="#f4f0e8" flatShading />
+        </mesh>
+      ))}
+      {/* front entrance awning */}
+      <mesh position={[hw - 1.5, 2.05, hd + 0.35]} castShadow>
+        <boxGeometry args={[1.6, 0.06, 0.7]} />
+        <meshStandardMaterial color="#2f6f9b" flatShading />
+      </mesh>
+      {[-0.45, 0, 0.45].map((ox, i) => (
+        <mesh key={i} position={[hw - 1.5 + ox, 2.06, hd + 0.35]}>
+          <boxGeometry args={[0.28, 0.07, 0.72]} />
+          <meshStandardMaterial color="#e8f0f4" flatShading />
+        </mesh>
+      ))}
+      {/* shop sign */}
+      <group position={[0, ROOM.wallH + 0.85, -hd - 0.2]}>
+        <mesh castShadow>
+          <boxGeometry args={[3.2, 0.7, 0.12]} />
+          <meshStandardMaterial color="#1e2a24" flatShading />
+        </mesh>
+        <mesh position={[0, 0, 0.02]}>
+          <boxGeometry args={[3.0, 0.55, 0.02]} />
+          <meshStandardMaterial color="#0e1814" flatShading />
+        </mesh>
+        <ShopSignPlane title={restaurantName} subtitle={locationLabel} position={[0, 0, 0.08]} />
+      </group>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0.4, -0.01, 0.4]}>
+        <planeGeometry args={[ROOM.w + 1.5, ROOM.d + 1.5]} />
+        <meshStandardMaterial color="#0a0806" transparent opacity={0.2} depthWrite={false} />
+      </mesh>
+    </group>
+  );
+}
+
+function ShopWindowRow({
+  width,
+  floors,
+  height,
+  depth,
+  face = "front",
+}: {
+  width: number;
+  floors: number;
+  height: number;
+  depth: number;
+  face?: "front" | "side" | "back" | "left";
+}) {
+  const cols = Math.max(2, Math.floor(width / 0.65));
+  const items: ReactNode[] = [];
+  for (let fi = 0; fi < floors; fi++) {
+    const y = 1.35 + fi * (height / Math.max(1, floors));
+    for (let ci = 0; ci < cols; ci++) {
+      const t = (ci + 0.5) / cols - 0.5;
+      const lit = (fi + ci) % 3 !== 0;
+      const glow = lit ? "#e8f6ff" : "#5a7080";
+      const emit = lit ? "#7aa8c0" : "#182028";
+      const emitI = lit ? 0.35 : 0.06;
+      if (face === "front") {
+        items.push(
+          <group key={`${fi}-${ci}`} position={[t * width * 0.78, y, depth / 2 + 0.04]}>
+            <mesh>
+              <boxGeometry args={[Math.min(0.55, width * 0.28), 0.48, 0.08]} />
+              <meshStandardMaterial color={glow} emissive={emit} emissiveIntensity={emitI} flatShading />
+            </mesh>
+            <mesh position={[0, 0, 0.05]}>
+              <boxGeometry args={[0.04, 0.48, 0.02]} />
+              <meshStandardMaterial color="#2a1c14" flatShading />
+            </mesh>
+            <mesh position={[0, 0, 0.05]}>
+              <boxGeometry args={[Math.min(0.55, width * 0.28), 0.04, 0.02]} />
+              <meshStandardMaterial color="#2a1c14" flatShading />
+            </mesh>
+            {/* sill */}
+            <mesh position={[0, -0.28, 0.06]}>
+              <boxGeometry args={[Math.min(0.6, width * 0.3), 0.05, 0.1]} />
+              <meshStandardMaterial color="#5a4030" flatShading />
+            </mesh>
+          </group>,
+        );
+      } else if (face === "back") {
+        items.push(
+          <group key={`${fi}-${ci}`} position={[t * width * 0.78, y, -depth / 2 - 0.04]}>
+            <mesh>
+              <boxGeometry args={[Math.min(0.5, width * 0.26), 0.42, 0.06]} />
+              <meshStandardMaterial color={glow} emissive={emit} emissiveIntensity={emitI * 0.7} flatShading />
+            </mesh>
+          </group>,
+        );
+      } else if (face === "left") {
+        items.push(
+          <group key={`${fi}-${ci}`} position={[-width / 2 - 0.04, y, t * depth * 0.78]}>
+            <mesh>
+              <boxGeometry args={[0.08, 0.48, Math.min(0.5, depth * 0.26)]} />
+              <meshStandardMaterial color={glow} emissive={emit} emissiveIntensity={emitI} flatShading />
+            </mesh>
+          </group>,
+        );
+      } else {
+        items.push(
+          <group key={`${fi}-${ci}`} position={[width / 2 + 0.04, y, t * depth * 0.78]}>
+            <mesh>
+              <boxGeometry args={[0.08, 0.48, Math.min(0.5, depth * 0.26)]} />
+              <meshStandardMaterial color={glow} emissive={emit} emissiveIntensity={emitI} flatShading />
+            </mesh>
+            <mesh position={[0.06, -0.28, 0]}>
+              <boxGeometry args={[0.1, 0.05, Math.min(0.55, depth * 0.28)]} />
+              <meshStandardMaterial color="#5a4030" flatShading />
+            </mesh>
+          </group>,
+        );
+      }
+    }
+  }
+  return <group>{items}</group>;
+}
+
+function NeighborTower({
+  position,
+  size,
+  color,
+  label,
+  accent,
+  awning = "#c34f3a",
+}: {
+  position: [number, number, number];
+  size: [number, number, number];
+  color: string;
+  label: string;
+  accent?: string;
+  awning?: string;
+}) {
+  const [w, h, d] = size;
+  const floors = Math.max(3, Math.floor(h / 1.05));
+  const facade = useMemo(() => {
+    const t = makeBrickTexture(color);
+    t.repeat.set(Math.max(2, Math.round(w)), Math.max(2, Math.round(h)));
+    return t;
+  }, [color, w, h]);
+
+  return (
+    <group position={position}>
+      {/* main mass */}
+      <mesh position={[0, h / 2, 0]} castShadow receiveShadow>
+        <boxGeometry args={[w, h, d]} />
+        <meshStandardMaterial map={facade} color={color} roughness={0.92} flatShading />
+      </mesh>
+      {/* ground floor storefront darker band */}
+      <mesh position={[0, 0.55, d / 2 + 0.01]} castShadow>
+        <boxGeometry args={[w * 0.92, 1.05, 0.08]} />
+        <meshStandardMaterial color={accent ?? shadeColor(color, 0.7)} roughness={0.85} flatShading />
+      </mesh>
+      {/* shop door */}
+      <mesh position={[-w * 0.22, 0.55, d / 2 + 0.06]} castShadow>
+        <boxGeometry args={[0.35, 0.95, 0.06]} />
+        <meshStandardMaterial color="#3a2a1c" flatShading />
+      </mesh>
+      {/* display window */}
+      <mesh position={[w * 0.18, 0.65, d / 2 + 0.06]}>
+        <boxGeometry args={[0.55, 0.7, 0.05]} />
+        <meshStandardMaterial color="#a8d4e8" emissive="#4a7890" emissiveIntensity={0.2} transparent opacity={0.85} flatShading />
+      </mesh>
+      {/* striped awning */}
+      <mesh position={[0, 1.2, d / 2 + 0.28]} castShadow>
+        <boxGeometry args={[w * 0.95, 0.06, 0.45]} />
+        <meshStandardMaterial color={awning} flatShading />
+      </mesh>
+      {[-0.35, -0.1, 0.15, 0.4].map((t, i) => (
+        <mesh key={i} position={[t * w * 0.7, 1.21, d / 2 + 0.28]}>
+          <boxGeometry args={[w * 0.12, 0.07, 0.46]} />
+          <meshStandardMaterial color="#f4f0e8" flatShading />
+        </mesh>
+      ))}
+      <mesh position={[0, 1.05, d / 2 + 0.48]} castShadow>
+        <boxGeometry args={[w * 0.9, 0.22, 0.05]} />
+        <meshStandardMaterial color={shadeColor(awning, 0.75)} flatShading />
+      </mesh>
+      {/* upper windows on visible faces */}
+      <ShopWindowRow width={w} floors={floors - 1} height={h - 1.6} depth={d} face="front" />
+      <ShopWindowRow width={w} floors={floors - 1} height={h - 1.6} depth={d} face="side" />
+      <ShopWindowRow width={w} floors={floors - 1} height={h - 1.6} depth={d} face="left" />
+      <ShopWindowRow width={w} floors={Math.max(2, floors - 2)} height={h - 2.2} depth={d} face="back" />
+      {/* floor cornices */}
+      {Array.from({ length: floors }, (_, fi) => (
+        <mesh key={fi} position={[0, (fi + 1) * (h / floors) - 0.05, 0]}>
+          <boxGeometry args={[w + 0.08, 0.06, d + 0.08]} />
+          <meshStandardMaterial color="#5a4030" roughness={0.85} flatShading />
+        </mesh>
+      ))}
+      {/* roof overhang + parapet */}
+      <mesh position={[0, h + 0.08, 0]} castShadow>
+        <boxGeometry args={[w + 0.25, 0.12, d + 0.25]} />
+        <meshStandardMaterial color="#4a3a30" flatShading />
+      </mesh>
+      <mesh position={[0, h + 0.22, 0]} castShadow>
+        <boxGeometry args={[w * 0.85, 0.18, d * 0.85]} />
+        <meshStandardMaterial color="#6a5040" flatShading />
+      </mesh>
+      {/* AC units */}
+      <mesh position={[w * 0.28, h * 0.62, d / 2 + 0.12]} castShadow>
+        <boxGeometry args={[0.28, 0.18, 0.18]} />
+        <meshStandardMaterial color="#8a9098" metalness={0.3} flatShading />
+      </mesh>
+      {/* vertical kanban */}
+      <mesh position={[w / 2 + 0.08, h * 0.55, 0]} castShadow>
+        <boxGeometry args={[0.12, h * 0.55, 0.45]} />
+        <meshStandardMaterial color="#c34f3a" flatShading />
+      </mesh>
+      <mesh position={[w / 2 + 0.14, h * 0.55, 0]}>
+        <boxGeometry args={[0.02, h * 0.5, 0.38]} />
+        <meshStandardMaterial color="#1e1510" flatShading />
+      </mesh>
+      <KanbanPlane label={label} position={[w / 2 + 0.28, h * 0.55, 0]} />
+      {/* horizontal shop board */}
+      <mesh position={[0, 1.45, d / 2 + 0.1]} castShadow>
+        <boxGeometry args={[w * 0.7, 0.22, 0.06]} />
+        <meshStandardMaterial color="#1e2a24" flatShading />
+      </mesh>
+    </group>
+  );
+}
+
+function StreetLamp({ position }: { position: [number, number, number] }) {
+  return (
+    <group position={position}>
+      <mesh position={[0, 0.08, 0]} castShadow>
+        <boxGeometry args={[0.18, 0.12, 0.18]} />
+        <meshStandardMaterial color="#3a3a38" flatShading />
+      </mesh>
+      <mesh position={[0, 1.1, 0]} castShadow>
+        <boxGeometry args={[0.07, 2.1, 0.07]} />
+        <meshStandardMaterial color="#4a4a48" metalness={0.35} roughness={0.55} flatShading />
+      </mesh>
+      <mesh position={[0, 2.2, 0]} castShadow>
+        <boxGeometry args={[0.22, 0.08, 0.22]} />
+        <meshStandardMaterial color="#3a3a38" flatShading />
+      </mesh>
+      <mesh position={[0, 2.35, 0]} castShadow>
+        <boxGeometry args={[0.2, 0.2, 0.2]} />
+        <meshStandardMaterial color="#f5e6b0" emissive="#e8c860" emissiveIntensity={0.55} flatShading />
+      </mesh>
+      <pointLight position={[0, 2.1, 0]} intensity={0.55} distance={6} color="#ffe6a8" />
+    </group>
+  );
+}
+
+function Passer({ seed, path }: { seed: number; path: "front" | "side" }) {
+  const ref = useRef<THREE.Group>(null);
+  const look = useMemo(() => {
+    const palette = [
+      { shirt: "#3d6b8c", pants: "#2f3a44", hair: "#2b2118" },
+      { shirt: "#c45a6e", pants: "#5a3040", hair: "#8b3a18" },
+      { shirt: "#4a7c59", pants: "#2c3530", hair: "#1a1a1a" },
+      { shirt: "#d4a84a", pants: "#6b4a28", hair: "#c8a040" },
+      { shirt: "#6a5a8c", pants: "#3a3450", hair: "#4a2060" },
+    ];
+    return palette[seed % palette.length];
+  }, [seed]);
+
+  useFrame(({ clock }) => {
+    if (!ref.current) return;
+    const t = clock.getElapsedTime() * (0.35 + (seed % 3) * 0.08) + seed * 1.7;
+    const bob = Math.abs(Math.sin(t * 6)) * 0.03;
+    if (path === "front") {
+      const x = ((t % 20) - 10) * 1.1;
+      ref.current.position.set(x, bob, ROOM.d / 2 + 2.2);
+      ref.current.rotation.y = Math.PI / 2;
+    } else {
+      const z = ((t % 16) - 8) * 0.9;
+      ref.current.position.set(-ROOM.w / 2 - 2.4, bob, z);
+      ref.current.rotation.y = 0;
+    }
+  });
+
+  return (
+    <group ref={ref}>
+      <mesh position={[-0.06, 0.16, 0]} castShadow>
+        <boxGeometry args={[0.09, 0.24, 0.1]} />
+        <meshStandardMaterial color={look.pants} flatShading />
+      </mesh>
+      <mesh position={[0.06, 0.16, 0]} castShadow>
+        <boxGeometry args={[0.09, 0.24, 0.1]} />
+        <meshStandardMaterial color={look.pants} flatShading />
+      </mesh>
+      <mesh position={[0, 0.42, 0]} castShadow>
+        <boxGeometry args={[0.24, 0.28, 0.14]} />
+        <meshStandardMaterial color={look.shirt} flatShading />
+      </mesh>
+      <mesh position={[-0.16, 0.4, 0]} castShadow>
+        <boxGeometry args={[0.07, 0.22, 0.07]} />
+        <meshStandardMaterial color={look.shirt} flatShading />
+      </mesh>
+      <mesh position={[0.16, 0.4, 0]} castShadow>
+        <boxGeometry args={[0.07, 0.22, 0.07]} />
+        <meshStandardMaterial color={look.shirt} flatShading />
+      </mesh>
+      <mesh position={[0, 0.68, 0]} castShadow>
+        <boxGeometry args={[0.2, 0.2, 0.18]} />
+        <meshStandardMaterial color="#efc49a" flatShading />
+      </mesh>
+      <mesh position={[-0.04, 0.7, 0.1]}>
+        <boxGeometry args={[0.035, 0.035, 0.02]} />
+        <meshStandardMaterial color="#1a1410" flatShading />
+      </mesh>
+      <mesh position={[0.04, 0.7, 0.1]}>
+        <boxGeometry args={[0.035, 0.035, 0.02]} />
+        <meshStandardMaterial color="#1a1410" flatShading />
+      </mesh>
+      <mesh position={[0, 0.78, -0.02]} castShadow>
+        <boxGeometry args={[0.22, 0.08, 0.2]} />
+        <meshStandardMaterial color={look.hair} flatShading />
+      </mesh>
+    </group>
+  );
+}
+
+function CobbleSidewalk({ position, size }: { position: [number, number, number]; size: [number, number] }) {
+  const map = useMemo(() => {
+    const t = nearestTex((ctx, s) => {
+      ctx.fillStyle = "#b8b2a4";
+      ctx.fillRect(0, 0, s, s);
+      for (let y = 0; y < 8; y++) {
+        for (let x = 0; x < 8; x++) {
+          ctx.fillStyle = (x + y) % 2 ? "#c4beb0" : "#aea89a";
+          ctx.fillRect(x * 8 + 1, y * 8 + 1, 6, 6);
+        }
+      }
+    }, 64);
+    t.repeat.set(size[0] / 1.5, size[1] / 1.5);
+    return t;
+  }, [size]);
+
+  return (
+    <mesh rotation={[-Math.PI / 2, 0, 0]} position={position} receiveShadow>
+      <planeGeometry args={size} />
+      <meshStandardMaterial map={map} roughness={0.95} />
+    </mesh>
+  );
+}
+
+export function StreetAndNeighbors() {
+  const hw = ROOM.w / 2;
+  const hd = ROOM.d / 2;
+
+  return (
+    <group>
+      <CobbleSidewalk position={[0, -0.02, hd + 1.4]} size={[ROOM.w + 8, 2.8]} />
+      <CobbleSidewalk position={[-hw - 1.6, -0.02, 0]} size={[3.2, ROOM.d + 6]} />
+      <CobbleSidewalk position={[hw + 1.8, -0.02, 0]} size={[3.6, ROOM.d + 6]} />
+      {/* asphalt */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.04, hd + 3.6]} receiveShadow>
+        <planeGeometry args={[ROOM.w + 14, 3.2]} />
+        <meshStandardMaterial color="#4a4e52" roughness={1} />
+      </mesh>
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[-hw - 3.4, -0.04, 0]} receiveShadow>
+        <planeGeometry args={[2.4, ROOM.d + 10]} />
+        <meshStandardMaterial color="#45494d" roughness={1} />
+      </mesh>
+      {[-4, -1, 2, 5].map((x, i) => (
+        <mesh key={i} rotation={[-Math.PI / 2, 0, 0]} position={[x, -0.035, hd + 3.6]}>
+          <planeGeometry args={[0.9, 0.12]} />
+          <meshStandardMaterial color="#d8d0a8" />
+        </mesh>
+      ))}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[3.2, -0.03, hd + 3.2]}>
+        <circleGeometry args={[0.28, 16]} />
+        <meshStandardMaterial color="#3a3e42" metalness={0.3} roughness={0.6} />
+      </mesh>
+      <StreetLamp position={[-hw - 0.8, 0, hd + 1.1]} />
+      <StreetLamp position={[hw + 0.9, 0, hd + 1.3]} />
+      <NeighborTower
+        position={[-hw - 3.8, 0, -1.5]}
+        size={[2.4, 5.5, 3.2]}
+        color="#8a6a55"
+        label="茶"
+        accent="#5a4030"
+        awning="#2f8f5b"
+      />
+      <NeighborTower
+        position={[-hw - 4.2, 0, 3.2]}
+        size={[2.2, 4.2, 2.4]}
+        color="#6a7a68"
+        label="麵"
+        accent="#3a4a38"
+        awning="#c34f3a"
+      />
+      <NeighborTower
+        position={[hw + 4.0, 0, -0.5]}
+        size={[2.8, 6.2, 3.6]}
+        color="#9a6a58"
+        label="文"
+        accent="#6a4030"
+        awning="#2f6f9b"
+      />
+      <NeighborTower
+        position={[hw + 4.3, 0, 4]}
+        size={[2.2, 3.8, 2.2]}
+        color="#7a8a75"
+        label="花"
+        accent="#4a5a40"
+        awning="#d4a84a"
+      />
+      {/* street planter */}
+      <mesh position={[hw + 1.2, 0.2, hd + 0.8]} castShadow>
+        <boxGeometry args={[0.5, 0.4, 0.5]} />
+        <meshStandardMaterial color="#6b4a28" flatShading />
+      </mesh>
+      <mesh position={[hw + 1.2, 0.55, hd + 0.8]} castShadow>
+        <boxGeometry args={[0.36, 0.32, 0.36]} />
+        <meshStandardMaterial color="#3d7a48" flatShading />
+      </mesh>
+      <mesh position={[hw + 1.3, 0.68, hd + 0.9]} castShadow>
+        <boxGeometry args={[0.18, 0.18, 0.18]} />
+        <meshStandardMaterial color="#4a8f55" flatShading />
+      </mesh>
+      {/* trash / bollards for street corner feel */}
+      <mesh position={[-hw + 0.4, 0.2, hd + 1.0]} castShadow>
+        <boxGeometry args={[0.22, 0.4, 0.22]} />
+        <meshStandardMaterial color="#4a5054" metalness={0.25} flatShading />
+      </mesh>
+      <mesh position={[hw - 0.3, 0.25, hd + 1.15]} castShadow>
+        <boxGeometry args={[0.12, 0.5, 0.12]} />
+        <meshStandardMaterial color="#c9a84a" metalness={0.4} flatShading />
+      </mesh>
+      <Passer seed={0} path="front" />
+      <Passer seed={1} path="front" />
+      <Passer seed={2} path="side" />
+      <Passer seed={3} path="side" />
+    </group>
+  );
+}
+
+export function BuildingShell({
+  locationLabel,
+  restaurantName,
+  buildable,
+  onCellClick,
+  floorStyle = "wood",
+  wallStyle = "cream",
+  entranceStyle = "classic",
+}: {
+  locationLabel: string;
+  restaurantName: string;
+  buildable: boolean;
+  onCellClick: (x: number, y: number) => void;
+  floorStyle?: FloorStyle;
+  wallStyle?: WallStyle;
+  entranceStyle?: EntranceStyle;
+}) {
+  return (
+    <group>
+      <FloorTiles buildable={buildable} onCellClick={onCellClick} floorStyle={floorStyle} />
+      <CutawayBuilding
+        locationLabel={locationLabel}
+        restaurantName={restaurantName}
+        wallStyle={wallStyle}
+        entranceStyle={entranceStyle}
+      />
+      <StreetAndNeighbors />
+      <mesh position={[0, 6, -12]}>
+        <planeGeometry args={[40, 16]} />
+        <meshStandardMaterial color="#7eb8d8" roughness={1} metalness={0} />
+      </mesh>
+      <mesh position={[-14, 5, 0]} rotation={[0, Math.PI / 2, 0]}>
+        <planeGeometry args={[28, 14]} />
+        <meshStandardMaterial color="#6aa8c8" />
+      </mesh>
+    </group>
+  );
+}

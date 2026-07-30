@@ -1,30 +1,19 @@
 import {
+  alcoholStockoutPenalty,
   chooseDishForGuest,
+  chooseDrinkForGuest,
   computeDayCosts,
+  monthEndBonus,
   patienceDecay,
   satisfactionScore,
   spawnRateModifier,
   updateStars,
 } from "./economy";
-import { getLocation, pickTaste } from "./locations";
-import {
-  entranceCell,
-  findPath,
-  isWalkable,
-  nearestStandSpot,
-  queueCell,
-  stepAlongPath,
-} from "./pathfinding";
-import type {
-  CellItem,
-  DaySummary,
-  GameState,
-  Guest,
-  Staff,
-  Task,
-  TaskKind,
-  Vec2,
-} from "./types";
+import { rollDailyEvent } from "./events";
+import { calendarFromDay, getLocation, pickTaste } from "./locations";
+import { entranceCell, findPath, nearestStandSpot, queueCell, stepAlongPath } from "./pathfinding";
+import type { CellItem, DaySummary, GameState, Guest, Staff, Task, TaskKind, Vec2 } from "./types";
+import { SECRET_DISH_NAME } from "./types";
 
 const TASK_PRIORITY: Record<TaskKind, number> = {
   seat: 60,
@@ -33,43 +22,43 @@ const TASK_PRIORITY: Record<TaskKind, number> = {
   cook: 80,
   serve: 85,
   checkout: 90,
+  clean: 40,
 };
 
-const WAITER_NAMES = ["小陈", "阿美", "小林", "阿凯", "小周", "阿宁"];
-const CHEF_NAMES = ["王厨", "李厨", "张厨", "陈厨", "周厨"];
+const WAITER_NAMES = ["唐泽", "春原", "工藤", "秋原", "小平", "堀切", "仓户", "柳泽", "小陈", "阿美"];
+const CHEF_NAMES = ["三门", "王厨", "李厨", "张厨", "陈厨"];
+
+const TABLE_TYPES = new Set(["table1", "table2", "table4", "table6"]);
 
 function cloneState(state: GameState): GameState {
   return {
     ...state,
     items: state.items.map((i) => ({ ...i })),
-    dishes: state.dishes.map((d) => ({ ...d })),
+    dishes: state.dishes.map((d) => ({ ...d, tags: [...d.tags] })),
     guests: state.guests.map((g) => ({ ...g, path: [...g.path] })),
     staff: state.staff.map((s) => ({ ...s, path: [...s.path] })),
     tasks: state.tasks.map((t) => ({ ...t })),
     regulars: state.regulars.map((r) => ({ ...r })),
     ratingHistory: [...state.ratingHistory],
     atmosphere: { ...state.atmosphere },
+    security: { ...state.security },
+    settings: { ...state.settings },
   };
 }
 
-export function createStaff(
-  role: "waiter" | "chef",
-  id: number,
-  wage: number,
-  items: CellItem[],
-): Staff {
+export function createStaff(role: "waiter" | "chef", id: number, wage: number, items: CellItem[]): Staff {
   const names = role === "waiter" ? WAITER_NAMES : CHEF_NAMES;
-  const name = names[id % names.length] + (id > names.length ? String(id % 10) : "");
+  const name = names[id % names.length];
   const kitchen = items.find((i) => i.type === "kitchen");
   const start =
     role === "chef" && kitchen
-      ? nearestStandSpot(items, entranceCell(), kitchen.x, kitchen.y) ?? entranceCell()
+      ? (nearestStandSpot(items, entranceCell(), kitchen.x, kitchen.y) ?? entranceCell())
       : entranceCell();
   return {
     id,
     name,
     role,
-    exp: 0,
+    exp: Math.random() * 8,
     wage,
     mood: 78,
     onLeave: false,
@@ -77,13 +66,22 @@ export function createStaff(
     x: start.x,
     y: start.y,
     path: [],
+    cleanInterval: role === "waiter" ? 240 : 0,
+    lastCleanMinute: 0,
+    speedStat: 55 + Math.floor(Math.random() * 40),
+    receptionStat: role === "waiter" ? 50 + Math.floor(Math.random() * 45) : 30,
+    charm: role === "waiter" ? 45 + Math.floor(Math.random() * 40) : 35 + Math.floor(Math.random() * 25),
+    learnRate: 40 + Math.floor(Math.random() * 45),
+    endurance: 45 + Math.floor(Math.random() * 40),
+    cookSkill: role === "chef" ? 50 + Math.floor(Math.random() * 40) : 15 + Math.floor(Math.random() * 20),
   };
 }
 
 function staffSpeed(s: Staff): number {
-  const expBonus = 1 + Math.min(0.45, s.exp / 120);
+  const expBonus = 1 + Math.min(0.5, s.exp / 100);
   const moodMul = s.mood < 35 ? 0.55 : s.mood < 55 ? 0.78 : 1;
-  return 0.55 * expBonus * moodMul;
+  const statMul = 0.7 + s.speedStat / 200;
+  return 0.5 * expBonus * moodMul * statMul;
 }
 
 function ensureTask(state: GameState, kind: TaskKind, guestId: number): void {
@@ -98,18 +96,37 @@ function ensureTask(state: GameState, kind: TaskKind, guestId: number): void {
 }
 
 function tableCapacity(type: string): number {
-  return type === "table4" ? 4 : 2;
+  if (type === "table1") return 1;
+  if (type === "table2") return 2;
+  if (type === "table4") return 4;
+  if (type === "table6") return 6;
+  return 0;
+}
+
+function isTable(type: string): boolean {
+  return TABLE_TYPES.has(type);
+}
+
+/** 带位：按 buyOrder 从小到大；选能坐下且浪费最少的桌 */
+function pickTableForGuest(state: GameState, guest: Guest): CellItem | undefined {
+  const occupied = new Set(
+    state.guests.filter((g) => g.tableId && g.stage !== "queue" && g.stage !== "leaving").map((g) => g.tableId),
+  );
+  const tables = state.items
+    .filter((t) => isTable(t.type) && !occupied.has(t.id) && tableCapacity(t.type) >= guest.size)
+    .sort((a, b) => a.buyOrder - b.buyOrder || tableCapacity(a.type) - tableCapacity(b.type));
+  // 在购买顺序靠前的候选里，优先浪费座位最少的
+  if (!tables.length) return undefined;
+  const early = tables.slice(0, Math.min(4, tables.length));
+  early.sort((a, b) => tableCapacity(a.type) - tableCapacity(b.type) || a.buyOrder - b.buyOrder);
+  return early[0];
 }
 
 function guestAt(state: GameState, id: number): Guest | undefined {
   return state.guests.find((g) => g.id === id);
 }
 
-function moveEntity(
-  items: CellItem[],
-  ent: { x: number; y: number; path: Vec2[] },
-  speed: number,
-): void {
+function moveEntity(items: CellItem[], ent: { x: number; y: number; path: Vec2[] }, speed: number): void {
   const stepped = stepAlongPath(ent.x, ent.y, ent.path, speed);
   ent.x = stepped.x;
   ent.y = stepped.y;
@@ -118,10 +135,6 @@ function moveEntity(
 
 function setPathTo(items: CellItem[], ent: { x: number; y: number; path: Vec2[] }, goal: Vec2): boolean {
   const path = findPath(items, { x: ent.x, y: ent.y }, goal);
-  if (!path.length && (Math.round(ent.x) !== goal.x || Math.round(ent.y) !== goal.y)) {
-    // try allow slight snap if adjacent unreachable due to start on blocked — rare
-    return false;
-  }
   ent.path = path;
   return true;
 }
@@ -132,13 +145,16 @@ function arrived(ent: { x: number; y: number; path: Vec2[] }, goal?: Vec2 | null
 }
 
 function taskTarget(state: GameState, task: Task): Vec2 | null {
+  if (task.kind === "clean") {
+    const toilet = state.items.find((i) => i.type === "toilet");
+    if (toilet) return nearestStandSpot(state.items, entranceCell(), toilet.x, toilet.y);
+    return entranceCell();
+  }
   const guest = guestAt(state, task.guestId);
   if (!guest) return null;
   const items = state.items;
 
-  if (task.kind === "seat") {
-    return queueCell(0);
-  }
+  if (task.kind === "seat") return queueCell(0);
   if (task.kind === "takeOrder" || task.kind === "serve") {
     const table = items.find((i) => i.id === guest.tableId);
     if (!table) return null;
@@ -159,50 +175,52 @@ function taskTarget(state: GameState, task: Task): Vec2 | null {
 
 function assignTasks(state: GameState): void {
   const free = state.staff.filter((s) => !s.onLeave && s.taskId == null);
-  const pending = state.tasks
-    .filter((t) => t.assigneeId == null)
-    .sort((a, b) => b.priority - a.priority);
+  const pending = state.tasks.filter((t) => t.assigneeId == null).sort((a, b) => b.priority - a.priority);
 
   for (const task of pending) {
     const candidates =
       task.kind === "cook"
         ? free.filter((s) => s.role === "chef")
         : free.filter((s) => s.role === "waiter");
+    // 接待任务优先高 receptionStat
+    if (task.kind === "seat" || task.kind === "checkout") {
+      candidates.sort((a, b) => b.receptionStat - a.receptionStat);
+    }
     const worker = candidates[0];
     if (!worker) continue;
     task.assigneeId = worker.id;
     worker.taskId = task.id;
     const idx = free.findIndex((s) => s.id === worker.id);
     if (idx >= 0) free.splice(idx, 1);
-
     const target = taskTarget(state, task);
-    if (target) {
-      if (!setPathTo(state.items, worker, target)) {
-        // path fail — release
-        task.assigneeId = undefined;
-        worker.taskId = undefined;
-        free.push(worker);
-      }
-    }
+    if (target) setPathTo(state.items, worker, target);
   }
 }
 
 function completeTask(state: GameState, task: Task, worker: Staff): void {
-  const guest = guestAt(state, task.guestId);
   worker.taskId = undefined;
-  worker.exp += 1.2;
+  worker.exp += 0.7 + worker.learnRate / 80;
+  if (worker.role === "chef" && task.kind === "cook") {
+    worker.cookSkill = Math.min(100, worker.cookSkill + 0.15 * (worker.learnRate / 60));
+  }
+  if (worker.role === "waiter") {
+    worker.speedStat = Math.min(100, worker.speedStat + 0.04 * (worker.learnRate / 70));
+    worker.receptionStat = Math.min(100, worker.receptionStat + 0.03 * (worker.learnRate / 70));
+  }
   worker.mood = Math.min(100, worker.mood + 0.4);
   state.tasks = state.tasks.filter((t) => t.id !== task.id);
 
+  if (task.kind === "clean") {
+    state.atmosphere.cleanliness = Math.min(100, state.atmosphere.cleanliness + 18);
+    worker.lastCleanMinute = state.minute;
+    return;
+  }
+
+  const guest = guestAt(state, task.guestId);
   if (!guest) return;
 
   if (task.kind === "seat") {
-    const occupied = new Set(
-      state.guests.filter((g) => g.tableId && g.stage !== "queue" && g.stage !== "leaving").map((g) => g.tableId),
-    );
-    const table = state.items.find(
-      (t) => (t.type === "table2" || t.type === "table4") && !occupied.has(t.id) && tableCapacity(t.type) >= guest.size,
-    );
+    const table = pickTableForGuest(state, guest);
     if (!table) {
       guest.taskQueued = false;
       return;
@@ -227,6 +245,17 @@ function completeTask(state: GameState, task: Task, worker: Staff): void {
       return;
     }
     guest.dish = dish.name;
+    const drink = chooseDrinkForGuest(state.dishes, guest, dish);
+    if (drink) guest.drink = drink.name;
+    // 酒水断货失望
+    const alcPenalty = alcoholStockoutPenalty(state.dishes);
+    if (alcPenalty) {
+      guest.mood -= alcPenalty;
+      guest.patience -= 8;
+      if (Math.random() < 0.4) state.toast = "有酒水售罄，客人有些失望";
+    }
+    // 接待魅力影响心情
+    guest.mood = Math.min(100, guest.mood + (worker.charm - 50) * 0.12);
     guest.stage = "waitingCook";
     guest.taskQueued = false;
     ensureTask(state, "deliverOrder", guest.id);
@@ -235,9 +264,15 @@ function completeTask(state: GameState, task: Task, worker: Staff): void {
     guest.taskQueued = false;
     ensureTask(state, "cook", guest.id);
   } else if (task.kind === "cook") {
-    state.dishes = state.dishes.map((d) =>
-      d.name === guest.dish ? { ...d, stock: Math.max(0, d.stock - guest.size) } : d,
-    );
+    const dish = state.dishes.find((d) => d.name === guest.dish);
+    const cookMul = dish?.cookTime ?? 1;
+    // cookTime 已在进度里体现；此处扣库存
+    state.dishes = state.dishes.map((d) => {
+      if (d.name === guest.dish) return { ...d, stock: Math.max(0, d.stock - guest.size) };
+      if (guest.drink && d.name === guest.drink) return { ...d, stock: Math.max(0, d.stock - 1) };
+      return d;
+    });
+    void cookMul;
     guest.stage = "waitingServe";
     guest.taskQueued = false;
     ensureTask(state, "serve", guest.id);
@@ -252,12 +287,24 @@ function completeTask(state: GameState, task: Task, worker: Staff): void {
 
 function finishGuest(state: GameState, guest: Guest): void {
   const dish = state.dishes.find((d) => d.name === guest.dish);
-  const bill = (dish?.price ?? 0) * guest.size;
+  const drink = state.dishes.find((d) => d.name === guest.drink);
+  const bill = (dish?.price ?? 0) * guest.size + (drink?.price ?? 0);
   const overBudget = bill > guest.budget;
-  const score = satisfactionScore(guest, dish, overBudget);
+  const loc = getLocation(state.locationId);
+  const score = satisfactionScore(
+    guest,
+    dish,
+    drink,
+    overBudget,
+    alcoholStockoutPenalty(state.dishes),
+    loc.luxuryNeed,
+    state.atmosphere,
+    state.staff,
+  );
   state.cash += bill;
   state.revenue += bill;
   state.served += guest.size;
+  state.monthGuestPeak = Math.max(state.monthGuestPeak, state.served);
   state.rating = Math.max(1, Math.min(5, state.rating * 0.985 + (score / 20) * 0.015));
 
   if (guest.regularId) {
@@ -275,9 +322,9 @@ function finishGuest(state: GameState, guest: Guest): void {
       memory: score,
       visits: 1,
     });
-    state.toast = `新的老顾客记住了这家店`;
+    state.toast = "新的老顾客记住了这家店";
   } else if (guest.memory != null && guest.memory >= 70) {
-    state.toast = `老顾客又来了，心情不错`;
+    state.toast = "老顾客又来了，心情不错";
   }
 
   guest.stage = "leaving";
@@ -295,23 +342,45 @@ function wanderIdle(state: GameState, s: Staff): void {
     if (spot) setPathTo(state.items, s, spot);
     return;
   }
-  const tables = state.items.filter((i) => i.type === "table2" || i.type === "table4");
+  const tables = state.items.filter((i) => isTable(i.type));
   const pick = Math.random() < 0.45 || !tables.length ? entranceCell() : tables[Math.floor(Math.random() * tables.length)];
-  const goal =
-    "type" in pick
-      ? nearestStandSpot(state.items, { x: s.x, y: s.y }, pick.x, pick.y)
-      : pick;
+  const goal = "type" in pick ? nearestStandSpot(state.items, { x: s.x, y: s.y }, pick.x, pick.y) : pick;
   if (goal) setPathTo(state.items, s, goal);
 }
 
+function maybeQueueClean(state: GameState): void {
+  for (const s of state.staff) {
+    if (s.role !== "waiter" || s.onLeave || !s.cleanInterval) continue;
+    const elapsed = state.minute - s.lastCleanMinute;
+    if (elapsed >= s.cleanInterval && !state.tasks.some((t) => t.kind === "clean" && t.assigneeId === s.id)) {
+      if (!state.tasks.some((t) => t.kind === "clean" && t.assigneeId == null)) {
+        state.tasks.push({
+          id: state.nextId++,
+          kind: "clean",
+          guestId: -1,
+          priority: TASK_PRIORITY.clean,
+          progress: 0,
+        });
+      }
+    }
+  }
+}
+
 function spawnGuest(state: GameState): void {
-  const tables = state.items.filter((i) => i.type === "table2" || i.type === "table4");
+  const tables = state.items.filter((i) => isTable(i.type));
   const kitchens = state.items.filter((i) => i.type === "kitchen").length;
-  if (!tables.length || !kitchens || state.guests.length > 16) return;
+  if (!tables.length || !kitchens || state.guests.length > 18) return;
+
+  const { openMinute, closeMinute, closedWeekday, difficulty } = state.settings;
+  if (state.minute < openMinute || state.minute >= closeMinute) return;
+  const cal = calendarFromDay(state.day);
+  if (closedWeekday >= 0 && cal.weekday === closedWeekday) return;
 
   const loc = getLocation(state.locationId);
-  const sizes = [1, 1, 2, 2, 2, 3, 4];
-  const size = sizes[Math.floor(Math.random() * sizes.length)];
+  const sizes = [1, 1, 1, 2, 2, 2, 3, 4, 4, 5, 6];
+  let size = sizes[Math.floor(Math.random() * sizes.length)];
+  const maxCap = Math.max(...tables.map((t) => tableCapacity(t.type)));
+  size = Math.min(size, maxCap);
   const taste = pickTaste(loc.tasteWeights);
   let regularId: string | undefined;
   let memory: number | undefined;
@@ -322,8 +391,15 @@ function spawnGuest(state: GameState): void {
   }
   const qIndex = state.guests.filter((g) => g.stage === "queue").length;
   const pos = queueCell(qIndex);
-  const budgetBase = (45 + size * 28 + Math.random() * 40) * loc.budgetMul;
-  const patience = 70 + Math.random() * 30 + (memory && memory > 70 ? 10 : 0);
+  const budgetBase = (40 + size * 26 + Math.random() * 50) * loc.budgetMul;
+  const diffPatience = difficulty === "easy" ? 12 : difficulty === "hard" ? -10 : 0;
+  const patience =
+    65 +
+    Math.random() * 30 +
+    (memory && memory > 70 ? 10 : 0) +
+    (loc.cleanNeed > 0.7 ? -5 : 0) +
+    diffPatience;
+  const wantsLuxury = Math.random() < loc.luxuryNeed;
 
   state.guests.push({
     id: state.nextId++,
@@ -340,6 +416,7 @@ function spawnGuest(state: GameState): void {
     regularId,
     memory,
     taskQueued: false,
+    wantsLuxury,
   });
   if (regularId) state.toast = `老顾客光临：想吃点${tasteLabel(taste)}`;
 }
@@ -374,15 +451,28 @@ function processStaffTasks(state: GameState, speed: number): void {
       if (!worker.path.length) setPathTo(state.items, worker, target);
       continue;
     }
-    // work on task
-    const rate = 18 * staffSpeed(worker) * (speed || 1);
+    let rate = 18 * staffSpeed(worker) * (speed || 1);
+    if (task.kind === "cook") {
+      const guest = guestAt(state, task.guestId);
+      const dish = state.dishes.find((d) => d.name === guest?.dish);
+      rate /= dish?.cookTime ?? 1;
+      rate *= 0.75 + worker.cookSkill / 200;
+    }
+    if (task.kind === "seat" || task.kind === "takeOrder") {
+      rate *= 0.85 + worker.receptionStat / 200;
+    }
+    // 忍耐力低时忙碌心情下降更快
+    if (worker.endurance < 40 && Math.random() < 0.02) {
+      worker.mood = Math.max(10, worker.mood - 0.5);
+    }
     task.progress += rate;
     if (task.progress >= 100) completeTask(state, task, worker);
   }
 }
 
 function advanceGuests(state: GameState, speed: number): void {
-  const decay = patienceDecay(state.atmosphere);
+  const loc = getLocation(state.locationId);
+  const decay = patienceDecay(state.atmosphere, loc.cleanNeed);
   const leaving: number[] = [];
 
   for (const guest of state.guests) {
@@ -394,8 +484,8 @@ function advanceGuests(state: GameState, speed: number): void {
     }
 
     if (guest.stage === "queue") {
-      guest.patience -= decay * 1.2;
-      guest.mood -= decay * 0.9;
+      guest.patience -= decay * 1.15;
+      guest.mood -= decay * 0.85;
       if (!guest.taskQueued) {
         ensureTask(state, "seat", guest.id);
         guest.taskQueued = true;
@@ -419,32 +509,36 @@ function advanceGuests(state: GameState, speed: number): void {
       continue;
     }
 
-    if (guest.stage === "order" || guest.stage === "waitingCook" || guest.stage === "waitingServe" || guest.stage === "pay") {
+    if (
+      guest.stage === "order" ||
+      guest.stage === "waitingCook" ||
+      guest.stage === "waitingServe" ||
+      guest.stage === "pay"
+    ) {
       guest.patience -= decay * 0.7;
       guest.mood -= decay * 0.45;
       if (guest.patience <= 0) {
         state.rating = Math.max(1, state.rating - 0.03);
         state.toast = "客人因等待过久离店";
-        if (guest.tableId) {
-          /* free table */
-        }
         guest.stage = "leaving";
         guest.tableId = undefined;
         state.tasks = state.tasks.filter((t) => t.guestId !== guest.id);
-        const staffHolding = state.staff.filter((s) => s.taskId && !state.tasks.some((t) => t.id === s.taskId));
-        for (const s of staffHolding) s.taskId = undefined;
+        for (const s of state.staff) {
+          if (s.taskId && !state.tasks.some((t) => t.id === s.taskId)) s.taskId = undefined;
+        }
         setPathTo(state.items, guest, entranceCell());
       }
       continue;
     }
 
     if (guest.stage === "eat") {
-      guest.progress += 10 * (speed || 1);
+      const dish = state.dishes.find((d) => d.name === guest.dish);
+      const eatRate = 9 * (speed || 1) * (dish ? 0.85 + dish.portion * 0.04 : 1);
+      guest.progress += eatRate;
       if (guest.progress >= 100) {
         guest.stage = "pay";
         guest.progress = 0;
         guest.taskQueued = false;
-        // walk toward cashier while waiting checkout
         const cashier = state.items.find((i) => i.type === "cashier");
         if (cashier) {
           const spot = nearestStandSpot(state.items, { x: guest.x, y: guest.y }, cashier.x, cashier.y);
@@ -456,14 +550,14 @@ function advanceGuests(state: GameState, speed: number): void {
     }
   }
 
-  if (leaving.length) {
-    state.guests = state.guests.filter((g) => !leaving.includes(g.id));
-  }
+  if (leaving.length) state.guests = state.guests.filter((g) => !leaving.includes(g.id));
 }
 
 function tickAtmosphere(state: GameState): void {
-  if (state.atmosphere.cleanliness > 15) {
-    state.atmosphere.cleanliness = Math.max(10, state.atmosphere.cleanliness - 0.08);
+  const loc = getLocation(state.locationId);
+  const drop = 0.06 + loc.cleanNeed * 0.08;
+  if (state.atmosphere.cleanliness > 12) {
+    state.atmosphere.cleanliness = Math.max(8, state.atmosphere.cleanliness - drop);
   }
 }
 
@@ -473,14 +567,22 @@ export function tick(prev: GameState, tickIndex: number): GameState {
   if (!speed) return state;
 
   state.minute += 5 * speed;
-  if (state.minute >= 23 * 60) {
-    state.minute = 23 * 60;
+  const closeAt = state.settings.closeMinute;
+  if (state.minute >= closeAt) {
+    state.minute = closeAt;
     state.speed = 0;
   }
 
-  const spawnEvery = Math.max(2, Math.round(7 / spawnRateModifier(state) - speed - Math.floor(state.rating) * 0.3));
+  const diffMul = state.settings.difficulty === "easy" ? 1.2 : state.settings.difficulty === "hard" ? 0.78 : 1;
+  const spawnEvery = Math.max(
+    2,
+    Math.round(
+      8 / Math.max(0.35, spawnRateModifier(state) * diffMul) - speed * 0.4 - Math.floor(state.rating) * 0.25,
+    ),
+  );
   if (tickIndex % spawnEvery === 0) spawnGuest(state);
 
+  maybeQueueClean(state);
   assignTasks(state);
   processStaffTasks(state, speed);
   advanceGuests(state, speed);
@@ -498,10 +600,11 @@ export function closeDay(state: GameState): { state: GameState; summary: DaySumm
   next.totalServed += next.served;
   next.guests = [];
   next.tasks = [];
+  const eventNotes: string[] = [];
+
   for (const s of next.staff) {
     s.taskId = undefined;
     s.path = [];
-    // wage vs expected
     const fair = next.baseWage;
     if (s.wage < fair - 80) s.mood = Math.max(10, s.mood - 12);
     else if (s.wage >= fair + 100) s.mood = Math.min(100, s.mood + 6);
@@ -518,12 +621,54 @@ export function closeDay(state: GameState): { state: GameState; summary: DaySumm
     if (s.lowMoodDays >= 2 && Math.random() < 0.35 + (40 - s.mood) / 100) {
       next.toast = `${s.name}因心情低落离职了`;
       next.staff = next.staff.filter((x) => x.id !== s.id);
+      eventNotes.push(`${s.name}离职`);
     }
   }
 
+  const ev = rollDailyEvent(next);
+  if (ev) {
+    next.cash = Math.max(0, next.cash + ev.cashDelta);
+    next.rating = Math.max(1, Math.min(5, next.rating + ev.ratingDelta));
+    next.atmosphere.cleanliness = Math.max(0, Math.min(100, next.atmosphere.cleanliness + ev.cleanlinessDelta));
+    next.toast = ev.toast;
+    next.lastEventDay = next.day;
+    eventNotes.push(ev.note);
+  }
+
   next.ratingHistory = [...next.ratingHistory.slice(-9), next.rating];
+  const prevStars = next.stars;
   next.stars = updateStars(next);
-  next.toast = next.toast.includes("离职") ? next.toast : "今日营业结束，账簿已经结算";
+
+  const cal = calendarFromDay(next.day);
+  const isMonthEnd = cal.date === 30;
+  let monthBonus = 0;
+  if (isMonthEnd) {
+    monthBonus = monthEndBonus(next);
+    next.cash += monthBonus;
+    next.toast = `月末评比：获得上榜奖金 ¥${monthBonus.toLocaleString()}`;
+    eventNotes.push(`月末奖金 ¥${monthBonus}`);
+  }
+
+  let yearAward = false;
+  if (cal.month === 12 && cal.date === 30 && next.stars >= 5 && !next.yearAwarded) {
+    next.yearAwarded = true;
+    next.cookbookUnlocked = true;
+    next.cash += 200000;
+    yearAward = true;
+    next.dishes = next.dishes.map((d) =>
+      d.name === SECRET_DISH_NAME ? { ...d, onMenu: true, stock: Math.max(d.stock, 12) } : d,
+    );
+    next.toast = "荣获「年度最佳食堂」！解锁蓝宝石秘传菜谱";
+    eventNotes.push("年度最佳");
+  }
+
+  if (next.stars > prevStars && !isMonthEnd) {
+    next.toast = `餐厅升至 ${next.stars}★！`;
+  }
+
+  if (!ev && !isMonthEnd && !yearAward && !next.toast.includes("离职")) {
+    next.toast = "今日营业结束，账簿已经结算";
+  }
 
   const summary: DaySummary = {
     revenue: next.revenue,
@@ -532,6 +677,10 @@ export function closeDay(state: GameState): { state: GameState; summary: DaySumm
     costs: costs.total,
     profit,
     stars: next.stars,
+    isMonthEnd,
+    monthBonus,
+    yearAward,
+    eventNotes,
   };
   return { state: next, summary };
 }
@@ -539,16 +688,31 @@ export function closeDay(state: GameState): { state: GameState; summary: DaySumm
 export function nextDay(state: GameState): GameState {
   const next = cloneState(state);
   next.day += 1;
-  next.minute = 11 * 60;
+  next.minute = next.settings.openMinute;
   next.revenue = 0;
   next.served = 0;
   next.guests = [];
   next.tasks = [];
-  next.dishes = next.dishes.map((d) => ({ ...d, stock: Math.max(d.stock, 30) }));
-  next.toast = "新的一天，准备开门迎客";
+  next.dishes = next.dishes.map((d) => {
+    if (d.name === SECRET_DISH_NAME && next.cookbookUnlocked) {
+      return { ...d, stock: Math.max(d.stock, 8), onMenu: d.onMenu };
+    }
+    return {
+      ...d,
+      stock: Math.max(d.stock, d.kind === "food" ? 28 : 15),
+    };
+  });
+  const cal = calendarFromDay(next.day);
+  if (cal.date === 1) next.monthGuestPeak = 0;
+  if (next.settings.closedWeekday >= 0 && cal.weekday === next.settings.closedWeekday) {
+    next.toast = "今日定休，可布置店面或调整菜单";
+  } else {
+    next.toast = "新的一天，准备开门迎客";
+  }
   for (const s of next.staff) {
     s.taskId = undefined;
     s.path = [];
+    s.lastCleanMinute = next.minute;
   }
   return next;
 }
@@ -561,7 +725,6 @@ export function relocate(state: GameState, targetId: string): GameState {
   next.guests = [];
   next.tasks = [];
   next.toast = `迁店成功：${loc.name} · ${loc.sizeLabel}`;
-  // keep furniture; staff reset positions near entrance
   for (const s of next.staff) {
     const e = entranceCell();
     s.x = e.x;
@@ -584,4 +747,14 @@ export function cleanShop(state: GameState): GameState {
   return next;
 }
 
-export { isWalkable };
+export function hireCleanCompany(state: GameState): GameState {
+  const next = cloneState(state);
+  if (next.cash < 1500) {
+    next.toast = "清洁公司需要 ¥1,500";
+    return next;
+  }
+  next.cash -= 1500;
+  next.atmosphere.cleanliness = Math.min(100, next.atmosphere.cleanliness + 55);
+  next.toast = "已预约清洁公司，店内焕然一新";
+  return next;
+}

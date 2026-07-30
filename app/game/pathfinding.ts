@@ -1,7 +1,7 @@
 import type { CellItem, Vec2 } from "./types";
 import { H, W } from "./types";
 
-const BLOCKING = new Set(["table2", "table4", "kitchen", "cashier"]);
+const BLOCKING = new Set(["table1", "table2", "table4", "table6", "kitchen", "cashier", "toilet"]);
 
 export function isWalkable(items: CellItem[], x: number, y: number): boolean {
   if (x < 0 || y < 0 || x >= W || y >= H) return false;
