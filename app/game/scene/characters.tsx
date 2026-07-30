@@ -1,7 +1,7 @@
 "use client";
 
-import { useFrame, useLoader } from "@react-three/fiber";
-import { useEffect, useMemo, useRef, type MutableRefObject, type ReactNode } from "react";
+import { useFrame } from "@react-three/fiber";
+import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import {
   LinearFilter,
   NearestFilter,
@@ -18,6 +18,7 @@ import { SpriteLabel } from "./labels";
 /** 与 page.tsx setInterval 一致：逻辑每 500ms 推进一步 */
 const SIM_TICK_SEC = 0.5;
 const WALK_COLUMNS = 3;
+const ATLAS_PROMISES = new Map<string, Promise<Texture>>();
 
 const STAGE_BUBBLE: Partial<Record<GuestStage, string>> = {
   order: "点餐",
@@ -53,6 +54,35 @@ function cloneAtlas(source: Texture, rows: number): Texture {
   return texture;
 }
 
+function loadAtlas(url: string): Promise<Texture> {
+  const cached = ATLAS_PROMISES.get(url);
+  if (cached) return cached;
+  const pending = new Promise<Texture>((resolve, reject) => {
+    new TextureLoader().load(url, resolve, undefined, reject);
+  });
+  ATLAS_PROMISES.set(url, pending);
+  return pending;
+}
+
+function useAtlas(url: string): Texture | null {
+  const [source, setSource] = useState<Texture | null>(null);
+  useEffect(() => {
+    let active = true;
+    loadAtlas(url)
+      .then((texture) => {
+        if (active) setSource(texture);
+      })
+      .catch((error: unknown) => {
+        ATLAS_PROMISES.delete(url);
+        console.error(`人物精灵加载失败：${url}`, error);
+      });
+    return () => {
+      active = false;
+    };
+  }, [url]);
+  return source;
+}
+
 /**
  * 真正用于场景内移动的全身角色。每次步行依次播放左脚、并步、右脚三帧，
  * 保留 3D 场景和可旋转镜头，但人物像 1990 年代经营游戏一样始终清楚可读。
@@ -72,14 +102,15 @@ function AnimatedPersonSprite({
   walkRef: MutableRefObject<WalkState>;
   carrying?: boolean;
 }) {
-  const source = useLoader(TextureLoader, atlasUrl);
-  const texture = useMemo(() => cloneAtlas(source, rows), [rows, source]);
+  const source = useAtlas(atlasUrl);
+  const texture = useMemo(() => (source ? cloneAtlas(source, rows) : null), [rows, source]);
   const sprite = useRef<Group>(null);
   const safeRow = Math.abs(row) % rows;
 
-  useEffect(() => () => texture.dispose(), [texture]);
+  useEffect(() => () => texture?.dispose(), [texture]);
 
   useFrame(() => {
+    if (!texture) return;
     const moving = walkRef.current.moving && !seated;
     const frame = moving ? Math.floor(walkRef.current.phase / 2.5) % WALK_COLUMNS : 1;
     texture.offset.set(frame / WALK_COLUMNS, 1 - (safeRow + 1) / rows);
@@ -99,10 +130,12 @@ function AnimatedPersonSprite({
         <meshStandardMaterial color="#1a120c" transparent opacity={0.24} depthWrite={false} />
       </mesh>
       <group ref={sprite} position={[0, seated ? 0.66 : 0.76, 0]}>
-        <sprite scale={[width, height, 1]} renderOrder={4}>
-          <spriteMaterial map={texture} transparent alphaTest={0.08} depthWrite={false} toneMapped={false} />
-        </sprite>
-        {carrying && !seated ? (
+        {texture ? (
+          <sprite scale={[width, height, 1]} renderOrder={4}>
+            <spriteMaterial map={texture} transparent alphaTest={0.08} depthWrite={false} toneMapped={false} />
+          </sprite>
+        ) : null}
+        {texture && carrying && !seated ? (
           <group position={[0.34, -0.06, 0.08]}>
             <mesh rotation={[-Math.PI / 2, 0, 0]}>
               <cylinderGeometry args={[0.22, 0.22, 0.035, 16]} />
