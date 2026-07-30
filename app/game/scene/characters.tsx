@@ -140,7 +140,14 @@ function AnimatedPersonSprite({
       <group ref={sprite} position={[0, seated ? 0.66 : 0.76, 0]}>
         {texture ? (
           <sprite scale={[width, height, 1]} renderOrder={4}>
-            <spriteMaterial map={texture} transparent alphaTest={0.08} depthWrite={false} toneMapped={false} />
+            <spriteMaterial
+              map={texture}
+              transparent
+              alphaTest={0.08}
+              depthTest={false}
+              depthWrite={false}
+              toneMapped={false}
+            />
           </sprite>
         ) : null}
         {texture && carrying && !seated ? (
@@ -345,7 +352,7 @@ export function ActorsLayer({
                 <SpriteLabel
                   kind="bubble"
                   text={String(bubbleText)}
-                  position={[0, seated ? 1.42 : 1.75, 0]}
+                  position={[0, seated ? 1.62 : 1.96, 0]}
                   scale={[1.15, 0.36, 1]}
                 />
               ) : null
@@ -375,7 +382,7 @@ export function ActorsLayer({
                 <SpriteLabel
                   kind="bubble"
                   text={TASK_LABEL[task.kind]}
-                  position={[0, 1.75, 0]}
+                  position={[0, 1.96, 0]}
                   scale={[1.15, 0.36, 1]}
                 />
               ) : null
