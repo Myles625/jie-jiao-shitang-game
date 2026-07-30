@@ -1,0 +1,69 @@
+{
+  "_framework-DC_sNd-Z.js": {
+    "file": "assets/framework-DC_sNd-Z.js",
+    "name": "framework",
+    "imports": [
+      "_rolldown-runtime-S-ySWqyJ.js"
+    ]
+  },
+  "_rolldown-runtime-S-ySWqyJ.js": {
+    "file": "assets/rolldown-runtime-S-ySWqyJ.js",
+    "name": "rolldown-runtime"
+  },
+  "_types-9ONgI4nh.js": {
+    "file": "assets/types-9ONgI4nh.js",
+    "name": "types"
+  },
+  "app/game/scene/RestaurantScene.tsx": {
+    "file": "assets/RestaurantScene-FDLooFvj.js",
+    "name": "RestaurantScene",
+    "src": "app/game/scene/RestaurantScene.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_rolldown-runtime-S-ySWqyJ.js",
+      "_types-9ONgI4nh.js",
+      "_framework-DC_sNd-Z.js"
+    ]
+  },
+  "app/page.tsx": {
+    "file": "assets/page-De_VWbOS.js",
+    "name": "page",
+    "src": "app/page.tsx",
+    "isDynamicEntry": true,
+    "imports": [
+      "_rolldown-runtime-S-ySWqyJ.js",
+      "virtual:vinext-app-browser-entry",
+      "_types-9ONgI4nh.js",
+      "_framework-DC_sNd-Z.js"
+    ],
+    "dynamicImports": [
+      "app/game/scene/RestaurantScene.tsx"
+    ]
+  },
+  "node_modules/vinext/dist/shims/layout-segment-context.js": {
+    "file": "assets/layout-segment-context-Cy6d2DkA.js",
+    "name": "layout-segment-context",
+    "src": "node_modules/vinext/dist/shims/layout-segment-context.js",
+    "isDynamicEntry": true,
+    "imports": [
+      "_rolldown-runtime-S-ySWqyJ.js",
+      "virtual:vinext-app-browser-entry",
+      "_framework-DC_sNd-Z.js"
+    ]
+  },
+  "virtual:vinext-app-browser-entry": {
+    "file": "assets/index-DC6NaT-5.js",
+    "name": "index",
+    "src": "virtual:vinext-app-browser-entry",
+    "isEntry": true,
+    "imports": [
+      "_rolldown-runtime-S-ySWqyJ.js",
+      "_framework-DC_sNd-Z.js"
+    ],
+    "dynamicImports": [
+      "node_modules/vinext/dist/shims/layout-segment-context.js",
+      "virtual:vinext-app-browser-entry",
+      "app/page.tsx"
+    ]
+  }
+}
