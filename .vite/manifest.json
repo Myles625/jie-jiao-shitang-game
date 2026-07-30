@@ -15,7 +15,7 @@
     "name": "types"
   },
   "app/game/scene/RestaurantScene.tsx": {
-    "file": "assets/RestaurantScene-FDLooFvj.js",
+    "file": "assets/RestaurantScene-Ce98BQIo.js",
     "name": "RestaurantScene",
     "src": "app/game/scene/RestaurantScene.tsx",
     "isDynamicEntry": true,
@@ -26,7 +26,7 @@
     ]
   },
   "app/page.tsx": {
-    "file": "assets/page-De_VWbOS.js",
+    "file": "assets/page-DnVU3s_z.js",
     "name": "page",
     "src": "app/page.tsx",
     "isDynamicEntry": true,
@@ -40,10 +40,10 @@
       "app/game/scene/RestaurantScene.tsx"
     ]
   },
-  "node_modules/vinext/dist/shims/layout-segment-context.js": {
-    "file": "assets/layout-segment-context-Cy6d2DkA.js",
+  "node_modules/.pnpm/vinext@0.0.50_@vitejs+plugin-react@6.0.2_vite@8.0.13_@types+node@22.19.19_esbuild@0.28._e4ae96fc73b3a0140a6915388c4913a8/node_modules/vinext/dist/shims/layout-segment-context.js": {
+    "file": "assets/layout-segment-context-CCznRwbO.js",
     "name": "layout-segment-context",
-    "src": "node_modules/vinext/dist/shims/layout-segment-context.js",
+    "src": "node_modules/.pnpm/vinext@0.0.50_@vitejs+plugin-react@6.0.2_vite@8.0.13_@types+node@22.19.19_esbuild@0.28._e4ae96fc73b3a0140a6915388c4913a8/node_modules/vinext/dist/shims/layout-segment-context.js",
     "isDynamicEntry": true,
     "imports": [
       "_rolldown-runtime-S-ySWqyJ.js",
@@ -52,7 +52,7 @@
     ]
   },
   "virtual:vinext-app-browser-entry": {
-    "file": "assets/index-DC6NaT-5.js",
+    "file": "assets/index-MOMSih0X.js",
     "name": "index",
     "src": "virtual:vinext-app-browser-entry",
     "isEntry": true,
@@ -61,9 +61,9 @@
       "_framework-DC_sNd-Z.js"
     ],
     "dynamicImports": [
-      "node_modules/vinext/dist/shims/layout-segment-context.js",
+      "app/page.tsx",
       "virtual:vinext-app-browser-entry",
-      "app/page.tsx"
+      "node_modules/.pnpm/vinext@0.0.50_@vitejs+plugin-react@6.0.2_vite@8.0.13_@types+node@22.19.19_esbuild@0.28._e4ae96fc73b3a0140a6915388c4913a8/node_modules/vinext/dist/shims/layout-segment-context.js"
     ]
   }
 }
