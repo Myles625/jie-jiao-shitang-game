@@ -3,6 +3,7 @@ import {
   chooseDishForGuest,
   chooseDrinkForGuest,
   computeDayCosts,
+  dailyGoalFor,
   monthEndBonus,
   patienceDecay,
   satisfactionScore,
@@ -609,12 +610,19 @@ export function closeDay(state: GameState): { state: GameState; summary: DaySumm
   const next = cloneState(state);
   const costs = computeDayCosts(next);
   const profit = next.revenue - costs.total;
+  const dailyGoal = dailyGoalFor(next);
+  const goalBonus =
+    next.served >= dailyGoal.guestTarget && profit >= dailyGoal.profitTarget
+      ? dailyGoal.bonus
+      : 0;
   next.cash -= costs.total;
-  next.totalProfit += profit;
+  next.cash += goalBonus;
+  next.totalProfit += profit + goalBonus;
   next.totalServed += next.served;
   next.guests = [];
   next.tasks = [];
-  const eventNotes: string[] = [];
+  const eventNotes: string[] =
+    goalBonus > 0 ? [`达成今日目标 +¥${goalBonus.toLocaleString()}`] : [];
 
   for (const s of next.staff) {
     s.taskId = undefined;
@@ -693,6 +701,9 @@ export function closeDay(state: GameState): { state: GameState; summary: DaySumm
     rating: next.rating,
     costs: costs.total,
     profit,
+    goalGuestTarget: dailyGoal.guestTarget,
+    goalProfitTarget: dailyGoal.profitTarget,
+    goalBonus,
     stars: next.stars,
     isMonthEnd,
     monthBonus,

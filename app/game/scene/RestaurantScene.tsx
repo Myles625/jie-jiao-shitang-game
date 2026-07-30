@@ -9,7 +9,7 @@ import { ActorsLayer } from "./characters";
 import { DecorProps, FurnitureLayer } from "./furniture";
 import { tableFoodFor } from "./tableFood";
 
-const CAMERA_CONFIG = { position: [12, 14, 12] as [number, number, number], zoom: 28, near: -80, far: 200, up: [0, 1, 0] as [number, number, number] };
+const CAMERA_CONFIG = { position: [11, 12, 11] as [number, number, number], zoom: 36, near: -80, far: 200, up: [0, 1, 0] as [number, number, number] };
 const GL_CONFIG = { antialias: true, alpha: false, powerPreference: "default" as const };
 const CANVAS_DPR: [number, number] = [1, 1.25];
 const RESIZE_CONFIG = { scroll: false, debounce: { scroll: 0, resize: 0 } };
@@ -34,13 +34,13 @@ export type SceneProps = {
 const Lights = memo(function Lights() {
   return (
     <>
-      <ambientLight intensity={0.42} color="#fff4e0" />
-      <hemisphereLight args={["#c8e4f8", "#6a5040", 0.35]} />
+      <ambientLight intensity={0.58} color="#fff2cf" />
+      <hemisphereLight args={["#ffe8b8", "#7b5441", 0.48]} />
       <directionalLight
         castShadow
         position={[8, 14, 6]}
-        intensity={1.35}
-        color="#fff0d0"
+        intensity={1.22}
+        color="#ffe4aa"
         shadow-mapSize={[1024, 1024]}
         shadow-camera-near={1}
         shadow-camera-far={40}
@@ -50,7 +50,7 @@ const Lights = memo(function Lights() {
         shadow-camera-bottom={-14}
         shadow-bias={-0.0002}
       />
-      <directionalLight position={[-6, 6, -4]} intensity={0.25} color="#a8c8e8" />
+      <directionalLight position={[-6, 6, -4]} intensity={0.3} color="#d4c8e8" />
     </>
   );
 });
@@ -58,17 +58,19 @@ const Lights = memo(function Lights() {
 const CameraRig = memo(function CameraRig() {
   const camera = useThree((s) => s.camera);
   useLayoutEffect(() => {
-    camera.position.set(12, 14, 12);
+    camera.position.set(11, 12, 11);
     camera.lookAt(0, 0.4, 0);
     camera.updateProjectionMatrix();
   }, [camera]);
   return (
     <OrbitControls
       makeDefault
+      enableDamping
+      dampingFactor={0.08}
       enablePan
       enableZoom
-      minZoom={16}
-      maxZoom={60}
+      minZoom={22}
+      maxZoom={64}
       maxPolarAngle={Math.PI / 2.35}
       minPolarAngle={Math.PI / 4.5}
       target={[0, 0.4, 0]}
@@ -171,7 +173,7 @@ export default function RestaurantScene(props: SceneProps) {
         gl={GL_CONFIG}
         resize={RESIZE_CONFIG}
         onCreated={({ camera, gl }) => {
-          gl.setClearColor("#6aa8c8");
+          gl.setClearColor("#d8bd8d");
           gl.domElement.style.display = "block";
           camera.lookAt(0, 0.4, 0);
           camera.updateProjectionMatrix();

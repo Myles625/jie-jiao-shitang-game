@@ -1,6 +1,26 @@
 import { calendarFromDay, getLocation, timeOfDayFootfall } from "./locations";
 import type { Atmosphere, Dish, GameState, Guest, LocationId, Security, TasteTag } from "./types";
 
+export type DailyGoal = {
+  guestTarget: number;
+  profitTarget: number;
+  bonus: number;
+};
+
+/**
+ * 每日经营目标：给筹备阶段一个清楚方向，也让日结不只是看数字。
+ * 目标随星级缓慢提高，避免新店首日就被高门槛劝退。
+ */
+export function dailyGoalFor(state: Pick<GameState, "stars" | "day">): DailyGoal {
+  const starStep = Math.max(0, state.stars - 1);
+  const weeklyLift = Math.min(4, Math.floor((state.day - 1) / 7));
+  return {
+    guestTarget: 8 + starStep * 3 + weeklyLift,
+    profitTarget: 1800 + starStep * 1600 + weeklyLift * 300,
+    bonus: 800 + state.stars * 400,
+  };
+}
+
 export function tasteScore(dish: Dish, taste: TasteTag): number {
   if (!dish.onMenu || dish.stock <= 0) return 0;
   const hit = dish.tags.includes(taste) ? 1.7 : 0.65;

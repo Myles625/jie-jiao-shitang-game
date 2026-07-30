@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { computeDayCosts } from "../app/game/economy";
+import { computeDayCosts, dailyGoalFor } from "../app/game/economy";
 import { createInitialState } from "../app/game/save";
 import { closeDay, tick } from "../app/game/simulation";
 
@@ -66,4 +66,19 @@ test("食材成本只按当天实际出餐累计", () => {
 
   assert.equal(costs.ingredient, 1234);
   assert.equal(costs.total, costs.payroll + costs.rent + costs.ingredient + costs.ads + costs.security);
+});
+
+test("达成每日经营目标会获得额外奖金", () => {
+  const state = createInitialState();
+  const goal = dailyGoalFor(state);
+  state.served = goal.guestTarget;
+  state.revenue = 10_000;
+  state.dayIngredientCost = 1_000;
+
+  const { state: closed, summary } = withSeed(31, () => closeDay(state));
+
+  assert.equal(summary.goalGuestTarget, goal.guestTarget);
+  assert.equal(summary.goalProfitTarget, goal.profitTarget);
+  assert.equal(summary.goalBonus, goal.bonus);
+  assert.ok(closed.totalProfit > summary.profit);
 });

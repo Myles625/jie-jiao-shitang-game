@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { canRelocate } from "./game/economy";
+import { canRelocate, dailyGoalFor } from "./game/economy";
 import { LOCATION_ORDER, calendarFromDay, getLocation } from "./game/locations";
 import { createInitialState, loadSave, toolData, writeSave } from "./game/save";
 import RestaurantSceneClient from "./game/scene/RestaurantSceneClient";
@@ -67,6 +67,7 @@ const PANEL_LABEL: Record<Panel, string> = {
 };
 
 const WEEKDAY = ["日", "一", "二", "三", "四", "五", "六"];
+const MAX_ACTIVE_FOOD = 8;
 
 function tableCap(type: string): number {
   if (type === "table1") return 1;
@@ -152,6 +153,32 @@ export default function Home() {
     .reduce((sum, g) => sum + g.size, 0);
   const seatCount = tables.reduce((sum, t) => sum + tableCap(t.type), 0);
   const payrollPreview = game.staff.filter((s) => !s.onLeave).reduce((sum, s) => sum + s.wage, 0);
+  const activeWaiters = game.staff.filter((staff) => staff.role === "waiter" && !staff.onLeave);
+  const activeChefs = game.staff.filter((staff) => staff.role === "chef" && !staff.onLeave);
+  const activeFoodCount = game.dishes.filter((dish) => dish.kind === "food" && dish.onMenu).length;
+  const activeDrinkCount = game.dishes.filter((dish) => dish.kind !== "food" && dish.onMenu).length;
+  const dailyGoal = dailyGoalFor(game);
+  const runningProfit =
+    game.revenue -
+    game.dayIngredientCost -
+    payrollPreview -
+    location.rent -
+    (game.atmosphere.ads ? 650 : 0);
+  const guestGoalRate = Math.min(100, Math.round((game.served / dailyGoal.guestTarget) * 100));
+  const profitGoalRate = Math.min(
+    100,
+    Math.max(0, Math.round((runningProfit / dailyGoal.profitTarget) * 100)),
+  );
+  const prepChecks = [
+    { label: "桌位", ready: seatCount >= 8, value: `${seatCount}席` },
+    {
+      label: "菜单",
+      ready: activeFoodCount >= 4 && activeFoodCount <= MAX_ACTIVE_FOOD,
+      value: `${activeFoodCount}/${MAX_ACTIVE_FOOD}`,
+    },
+    { label: "员工", ready: activeWaiters.length >= 2 && activeChefs.length >= 1, value: `${activeWaiters.length}+${activeChefs.length}` },
+    { label: "酒水", ready: activeDrinkCount >= 3, value: `${activeDrinkCount}种` },
+  ];
   const stageCounts = useMemo(() => {
     const count = (stages: GameState["guests"][number]["stage"][]) =>
       game.guests.filter((guest) => stages.includes(guest.stage)).length;
@@ -164,8 +191,6 @@ export default function Home() {
       { id: "pay", label: "结账", count: count(["pay"]) },
     ];
   }, [game.guests]);
-  const activeWaiters = game.staff.filter((staff) => staff.role === "waiter" && !staff.onLeave);
-  const activeChefs = game.staff.filter((staff) => staff.role === "chef" && !staff.onLeave);
   const busyWaiters = activeWaiters.filter((staff) => staff.taskId != null).length;
   const busyChefs = activeChefs.filter((staff) => staff.taskId != null).length;
   const waitingCook = stageCounts.find((stage) => stage.id === "cook")?.count ?? 0;
@@ -269,12 +294,47 @@ export default function Home() {
     setGame((g) => {
       const dish = g.dishes[index];
       if (!dish) return g;
+      if (
+        !dish.onMenu &&
+        dish.kind === "food" &&
+        g.dishes.filter((candidate) => candidate.kind === "food" && candidate.onMenu).length >=
+          MAX_ACTIVE_FOOD
+      ) {
+        return { ...g, toast: `主菜单最多登录 ${MAX_ACTIVE_FOOD} 道料理，请先下架一道` };
+      }
       if (dish.name === SECRET_DISH_NAME && !g.cookbookUnlocked && !dish.onMenu) {
         return { ...g, toast: "需先获得「年度最佳食堂」解锁秘传菜谱" };
       }
       return {
         ...g,
         dishes: g.dishes.map((d, i) => (i === index ? { ...d, onMenu: !d.onMenu } : d)),
+      };
+    });
+  }
+
+  function developDish(index: number) {
+    setGame((g) => {
+      if (g.speed) return { ...g, toast: "料理研究只能在筹备时间进行" };
+      const dish = g.dishes[index];
+      if (!dish) return g;
+      if (dish.quality >= 5) return { ...g, toast: `${dish.name} 已研究至最高等级` };
+      const price = 500 + dish.quality * 450;
+      if (g.cash < price) return { ...g, toast: `料理研究需要 ¥${price.toLocaleString()}` };
+      return {
+        ...g,
+        cash: g.cash - price,
+        dishes: g.dishes.map((candidate, dishIndex) =>
+          dishIndex === index
+            ? {
+                ...candidate,
+                quality: candidate.quality + 1,
+                demand: Math.round((candidate.demand + 0.08) * 100) / 100,
+                cookTime: Math.max(0.5, Math.round((candidate.cookTime - 0.05) * 100) / 100),
+                cost: candidate.cost + 20,
+              }
+            : candidate,
+        ),
+        toast: `${dish.name} 研究成功：材料与人气提升`,
       };
     });
   }
@@ -307,6 +367,34 @@ export default function Home() {
 
   function setStaffWage(id: number, wage: number) {
     setGame((g) => ({ ...g, staff: g.staff.map((s) => (s.id === id ? { ...s, wage } : s)) }));
+  }
+
+  function trainStaff(id: number) {
+    setGame((g) => {
+      if (g.speed) return { ...g, toast: "员工训练只能在筹备时间进行" };
+      const target = g.staff.find((member) => member.id === id);
+      if (!target) return g;
+      const price = 900 + Math.floor(target.exp / 25) * 250;
+      if (g.cash < price) return { ...g, toast: `训练需要 ¥${price.toLocaleString()}` };
+      return {
+        ...g,
+        cash: g.cash - price,
+        staff: g.staff.map((member) =>
+          member.id === id
+            ? {
+                ...member,
+                exp: member.exp + 12,
+                mood: Math.min(100, member.mood + 8),
+                speedStat: Math.min(100, member.speedStat + 3),
+                receptionStat: Math.min(100, member.receptionStat + (member.role === "waiter" ? 4 : 1)),
+                charm: Math.min(100, member.charm + (member.role === "waiter" ? 2 : 1)),
+                cookSkill: Math.min(100, member.cookSkill + (member.role === "chef" ? 4 : 1)),
+              }
+            : member,
+        ),
+        toast: `${target.name} 完成训练，能力和心情提升`,
+      };
+    });
   }
 
   function setCleanInterval(id: number, minutes: number) {
@@ -398,8 +486,11 @@ export default function Home() {
     <main className={`game-shell ${panelOpen ? "is-panel-open" : "is-panel-closed"}`}>
       <header className="topbar">
         <div className="brand">
-          <span className="brand-mark">街</span>
-          <strong>{game.restaurantName}</strong>
+          <span className="brand-mark">B</span>
+          <span className="brand-copy">
+            <small>洋食屋经营物语</small>
+            <strong>{game.restaurantName}</strong>
+          </span>
         </div>
         <div className="datebox">
           <small>
@@ -423,6 +514,7 @@ export default function Home() {
           <b>{game.served}</b>
         </div>
         <div className="stars" aria-label={`餐厅评价 ${game.rating.toFixed(1)} 星`}>
+          <small>店铺等级</small>
           <b>
             {"★".repeat(Math.round(game.stars))}
             <i>{"☆".repeat(5 - Math.round(game.stars))}</i>
@@ -438,12 +530,12 @@ export default function Home() {
           <nav>
             {(
               [
-                ["build", "▦", "布置"],
-                ["menu", "▤", "菜单"],
-                ["staff", "♟", "员工"],
-                ["ambiance", "♨", "氛围"],
-                ["settings", "⚙", "设定"],
-                ["manual", "?", "规则"],
+                ["build", "▦", "店内布置"],
+                ["menu", "♨", "料理菜单"],
+                ["staff", "♟", "员工名簿"],
+                ["ambiance", "♪", "店铺经营"],
+                ["settings", "⚙", "营业设定"],
+                ["manual", "?", "经营手册"],
               ] as [Panel, string, string][]
             ).map(([id, icon, label]) => (
               <button
@@ -458,7 +550,7 @@ export default function Home() {
             ))}
           </nav>
           <div className="side-foot">
-            <span>v0.6</span>
+            <span>1998 MODE</span>
             <button type="button" className="panel-toggle" onClick={() => (panelOpen ? closePanel() : openPanel(panel))}>
               {panelOpen ? "收起" : "管理"}
             </button>
@@ -482,41 +574,44 @@ export default function Home() {
               entranceStyle={game.atmosphere.entranceStyle}
               showBubbles={game.settings.showBubbles}
             />
+            <div className="scene-titleplate" aria-hidden>
+              <small>{location.name} · {location.sizeLabel}</small>
+              <b>{game.restaurantName}</b>
+              <span>拖拽旋转餐厅 · 滚轮缩放</span>
+            </div>
             <div className="float-status" aria-label="店铺状态">
-              <div className="float-row">
-                <small>地点</small>
-                <b>
-                  {location.name}
-                  <em>{location.sizeLabel}</em>
-                </b>
-              </div>
-              <div className="float-row">
-                <small>店名</small>
-                <b>{game.restaurantName}</b>
-              </div>
-              <div className="float-row dual">
+              <header>
+                <small>本日经营目标</small>
+                <b>达成可得 ¥{dailyGoal.bonus.toLocaleString()}</b>
+              </header>
+              <div className="goal-meter">
                 <span>
-                  <small>今日客</small>
-                  <b>{game.served}</b>
+                  <small>接待客人</small>
+                  <b>{game.served}/{dailyGoal.guestTarget}人</b>
+                  <i><em style={{ width: `${guestGoalRate}%` }} /></i>
                 </span>
                 <span>
-                  <small>营业额</small>
-                  <b>¥{game.revenue.toLocaleString()}</b>
-                </span>
-              </div>
-              <div className="float-row dual">
-                <span>
-                  <small>营业</small>
-                  <b>
-                    {timeLabel(game.settings.openMinute)}–{timeLabel(game.settings.closeMinute)}
-                  </b>
-                </span>
-                <span>
-                  <small>难度</small>
-                  <b>{DIFF_LABEL[game.settings.difficulty]}</b>
+                  <small>营业利润</small>
+                  <b>¥{Math.max(0, runningProfit).toLocaleString()}/{dailyGoal.profitTarget.toLocaleString()}</b>
+                  <i><em style={{ width: `${profitGoalRate}%` }} /></i>
                 </span>
               </div>
             </div>
+            <aside className="advisor-card" aria-label="店长助理提示">
+              <div className="advisor-portrait" aria-hidden />
+              <div className="advisor-copy">
+                <small>店长助理 · 真由美</small>
+                <b>{serviceInsight}</b>
+                <div className="prep-checks">
+                  {prepChecks.map((item) => (
+                    <span key={item.label} className={item.ready ? "ready" : ""}>
+                      <i>{item.ready ? "✓" : "·"}</i>
+                      {item.label} <em>{item.value}</em>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </aside>
             <div className="queue-dock" aria-label="门外排队">
               <span className="queue-label">门口排队</span>
               <div className="queue">
@@ -589,8 +684,15 @@ export default function Home() {
 
       <footer className="bottombar">
         <div className="day-goal">
-          <small>现场判断 · {location.name}</small>
-          <b>{serviceInsight}</b>
+          <small>今日挑战 · 第 {game.day} 日</small>
+          <b>
+            接待 {dailyGoal.guestTarget} 人并赚取 ¥{dailyGoal.profitTarget.toLocaleString()}
+            <em>完成奖励 ¥{dailyGoal.bonus.toLocaleString()}</em>
+          </b>
+        </div>
+        <div className="shift-readout">
+          <small>{game.speed ? "营业进行中" : "开店筹备中"}</small>
+          <b>{timeLabel(game.minute)}</b>
         </div>
         <div className="speed-controls">
           <button className={game.speed === 0 ? "on" : ""} onClick={() => setSpeed(0)}>
@@ -675,9 +777,20 @@ export default function Home() {
               <div className="panel-title">
                 <span>02</span>
                 <div>
-                  <h2>菜单与食材</h2>
-                  <p>售价、份量、浓淡、材料、调理时间</p>
+                  <h2>料理手帖</h2>
+                  <p>选出招牌菜，研究味道并安排进货</p>
                 </div>
+              </div>
+              <div className="menu-register">
+                <span>
+                  <small>今日主菜单</small>
+                  <b>{activeFoodCount}/{MAX_ACTIVE_FOOD} 道</b>
+                </span>
+                <span>
+                  <small>饮料与酒水</small>
+                  <b>{activeDrinkCount} 种</b>
+                </span>
+                <p>主菜单位置有限。客层、利润和调理速度要一起考虑。</p>
               </div>
               <div className="dish-list">
                 {game.dishes.map((dish, i) => (
@@ -697,6 +810,22 @@ export default function Home() {
                       </div>
                       <button className="menu-toggle" onClick={() => toggleMenu(i)}>
                         {dish.onMenu ? "下架" : "上架"}
+                      </button>
+                    </div>
+                    <div className="dish-economy">
+                      <span>
+                        单份毛利 <b>¥{Math.max(0, dish.price - dish.cost).toLocaleString()}</b>
+                      </span>
+                      <span>
+                        人气 <b>{Math.round(dish.demand * 100)}</b>
+                      </span>
+                      <button
+                        type="button"
+                        className="research-button"
+                        disabled={dish.quality >= 5}
+                        onClick={() => developDish(i)}
+                      >
+                        {dish.quality >= 5 ? "研究完成" : `料理研究 · ¥${(500 + dish.quality * 450).toLocaleString()}`}
                       </button>
                     </div>
                     <label>
@@ -813,7 +942,7 @@ export default function Home() {
               <div className="staff-list">
                 {game.staff.map((s) => (
                   <article key={s.id} className={`staff-card detailed ${s.onLeave ? "on-leave" : ""}`}>
-                    <i>{s.role === "chef" ? "♨" : "♟"}</i>
+                    <i className={`staff-portrait portrait-${s.id % 4}`} aria-hidden />
                     <div>
                       <b>
                         {s.name}
@@ -856,6 +985,9 @@ export default function Home() {
                       )}
                     </div>
                     <div className="staff-actions">
+                      <button className="train" onClick={() => trainStaff(s.id)}>
+                        训练
+                      </button>
                       <button onClick={() => toggleLeave(s.id)}>{s.onLeave ? "复工" : "休假"}</button>
                       <button className="danger" onClick={() => fireStaff(s.id)}>
                         解雇
@@ -1257,6 +1389,20 @@ export default function Home() {
               <span>
                 入座后流失<b className={summary.serviceWalkouts > 0 ? "loss" : ""}>{summary.serviceWalkouts} 人</b>
               </span>
+            </div>
+            <div className={`ledger-goal ${summary.goalBonus > 0 ? "complete" : ""}`}>
+              <div>
+                <small>本日经营目标</small>
+                <b>
+                  接待 {summary.guests}/{summary.goalGuestTarget} 人 · 利润 ¥
+                  {Math.max(0, summary.profit).toLocaleString()}/{summary.goalProfitTarget.toLocaleString()}
+                </b>
+              </div>
+              <strong>
+                {summary.goalBonus > 0
+                  ? `达成 +¥${summary.goalBonus.toLocaleString()}`
+                  : "未达成"}
+              </strong>
             </div>
             {summary.monthBonus > 0 && (
               <div className="profit">

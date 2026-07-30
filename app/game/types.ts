@@ -232,6 +232,9 @@ export type DaySummary = {
   rating: number;
   costs: number;
   profit: number;
+  goalGuestTarget: number;
+  goalProfitTarget: number;
+  goalBonus: number;
   stars: number;
   isMonthEnd: boolean;
   monthBonus: number;

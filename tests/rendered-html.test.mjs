@@ -29,12 +29,12 @@ test("server-renders 蓝宝石餐厅 game shell", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
 
   const html = await response.text();
-  assert.match(html, /<title>蓝宝石餐厅 · 1998经营模拟<\/title>/);
+  assert.match(html, /<title>蓝宝石餐厅 · 1998梦幻经营物语<\/title>/);
   assert.match(html, /class="game-shell[^"]*"/);
   assert.match(html, /蓝宝石餐厅/);
   assert.match(html, /开始营业|暂停营业/);
   assert.match(html, /木场/);
-  assert.match(html, /sapphire-restaurant-save|经营模拟/);
+  assert.match(html, /梦幻经营物语|本日经营目标/);
 });
 
 test("game modules and page wire GameState simulation + R3F scene", async () => {
@@ -55,6 +55,7 @@ test("game modules and page wire GameState simulation + R3F scene", async () => 
   assert.match(page, /RestaurantSceneClient|simSpeed|panelOpen|seated/);
   assert.match(page, /ambiance/);
   assert.match(page, /settings|一般设定|float-status/);
+  assert.match(page, /dailyGoalFor|developDish|trainStaff|advisor-card/);
   assert.match(page, /cutaway-stage|building-cutaway|scene-host/);
   assert.match(page, /panel-backdrop|is-modal|is-drawer|panel-close|closePanel/);
   assert.match(types, /export type GameState/);
@@ -69,6 +70,7 @@ test("game modules and page wire GameState simulation + R3F scene", async () => 
   assert.match(css, /\.furn-iso\b|\.building-cutaway\b/);
   assert.match(css, /\.ambiance-panel\b/);
   assert.match(css, /\.float-status\b/);
+  assert.match(css, /\.advisor-card\b|\.menu-register\b|\.staff-portrait\b/);
   assert.match(css, /\.building-cutaway\b/);
   assert.match(css, /\.zone-kitchen\b/);
   assert.match(css, /\.kanban\b/);

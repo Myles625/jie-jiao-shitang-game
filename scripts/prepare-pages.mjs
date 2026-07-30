@@ -53,6 +53,8 @@ function rewrite(content) {
   );
   for (const file of [
     "og.png",
+    "og-1998-redesign.png",
+    "characters-1998.png",
     "favicon.svg",
     "file.svg",
     "globe.svg",
