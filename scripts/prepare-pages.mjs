@@ -55,6 +55,8 @@ function rewrite(content) {
     "og.png",
     "og-1998-redesign.png",
     "characters-1998.png",
+    "staff-walk-atlas.png",
+    "guest-walk-atlas.png",
     "favicon.svg",
     "file.svg",
     "globe.svg",

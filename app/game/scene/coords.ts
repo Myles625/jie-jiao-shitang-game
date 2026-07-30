@@ -19,7 +19,7 @@ export function worldToGrid(wx: number, wz: number) {
 }
 
 export function isKitchenZone(x: number, y: number) {
-  return x <= 3 && y <= 2;
+  return x >= 2 && x <= 5 && y >= 2 && y <= 4;
 }
 
 export const ROOM = {

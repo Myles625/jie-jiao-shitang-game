@@ -1,10 +1,30 @@
-import type { CellItem, Vec2 } from "./types";
+import type { CellItem, ExpansionLevel, Vec2 } from "./types";
 import { H, W } from "./types";
 
 const BLOCKING = new Set(["table1", "table2", "table4", "table6", "kitchen", "cashier", "toilet"]);
 
-export function isWalkable(items: CellItem[], x: number, y: number): boolean {
-  if (x < 0 || y < 0 || x >= W || y >= H) return false;
+export type ShopBounds = { minX: number; maxX: number; minY: number; maxY: number; width: number; height: number };
+
+/** 可营业面积逐圈向外扩展：12×8 → 14×10 → 16×12。 */
+export function shopBounds(level: ExpansionLevel): ShopBounds {
+  const inset = 2 - level;
+  return {
+    minX: inset,
+    maxX: W - 1 - inset,
+    minY: inset,
+    maxY: H - 1 - inset,
+    width: W - inset * 2,
+    height: H - inset * 2,
+  };
+}
+
+export function isUnlockedCell(x: number, y: number, level: ExpansionLevel): boolean {
+  const b = shopBounds(level);
+  return x >= b.minX && x <= b.maxX && y >= b.minY && y <= b.maxY;
+}
+
+export function isWalkable(items: CellItem[], x: number, y: number, level: ExpansionLevel = 0): boolean {
+  if (!isUnlockedCell(x, y, level)) return false;
   const item = items.find((i) => i.x === x && i.y === y);
   if (!item) return true;
   return !BLOCKING.has(item.type);
@@ -24,7 +44,7 @@ export function findPath(
   items: CellItem[],
   start: Vec2,
   goal: Vec2,
-  opts?: { allowGoalBlocked?: boolean },
+  opts?: { allowGoalBlocked?: boolean; expansionLevel?: ExpansionLevel },
 ): Vec2[] {
   const sx = Math.round(start.x);
   const sy = Math.round(start.y);
@@ -34,8 +54,10 @@ export function findPath(
 
   const key = (x: number, y: number) => `${x},${y}`;
   const walk = (x: number, y: number) => {
-    if (x === gx && y === gy && opts?.allowGoalBlocked) return x >= 0 && y >= 0 && x < W && y < H;
-    return isWalkable(items, x, y);
+    if (x === gx && y === gy && opts?.allowGoalBlocked) {
+      return isUnlockedCell(x, y, opts.expansionLevel ?? 0);
+    }
+    return isWalkable(items, x, y, opts?.expansionLevel ?? 0);
   };
 
   const queue: Vec2[] = [{ x: sx, y: sy }];
@@ -68,17 +90,23 @@ export function findPath(
 }
 
 /** Prefer walkable adjacent cells around furniture. */
-export function standSpots(items: CellItem[], fx: number, fy: number): Vec2[] {
-  return neighbors(fx, fy).filter((p) => isWalkable(items, p.x, p.y));
+export function standSpots(items: CellItem[], fx: number, fy: number, level: ExpansionLevel = 0): Vec2[] {
+  return neighbors(fx, fy).filter((p) => isWalkable(items, p.x, p.y, level));
 }
 
-export function nearestStandSpot(items: CellItem[], from: Vec2, fx: number, fy: number): Vec2 | null {
-  const spots = standSpots(items, fx, fy);
+export function nearestStandSpot(
+  items: CellItem[],
+  from: Vec2,
+  fx: number,
+  fy: number,
+  level: ExpansionLevel = 0,
+): Vec2 | null {
+  const spots = standSpots(items, fx, fy, level);
   if (!spots.length) return null;
   let best: Vec2 | null = null;
   let bestLen = Infinity;
   for (const s of spots) {
-    const path = findPath(items, from, s);
+    const path = findPath(items, from, s, { expansionLevel: level });
     if (path.length < bestLen || (path.length === bestLen && best === null)) {
       // empty path with same cell counts as 0
       const dist = path.length || (Math.round(from.x) === s.x && Math.round(from.y) === s.y ? 0 : 999);
@@ -99,14 +127,16 @@ export function nearestStandSpot(items: CellItem[], from: Vec2, fx: number, fy: 
   return best;
 }
 
-export function entranceCell(): Vec2 {
-  return { x: Math.floor(W / 2), y: H - 1 };
+export function entranceCell(level: ExpansionLevel = 0): Vec2 {
+  const b = shopBounds(level);
+  return { x: Math.floor((b.minX + b.maxX + 1) / 2), y: b.maxY };
 }
 
-export function queueCell(index: number): Vec2 {
+export function queueCell(index: number, level: ExpansionLevel = 0): Vec2 {
   // Outside along bottom edge, slightly right of entrance conceptually (same grid, bottom row)
-  const base = entranceCell();
-  return { x: Math.min(W - 1, base.x + 1 + (index % 3)), y: base.y };
+  const base = entranceCell(level);
+  const b = shopBounds(level);
+  return { x: Math.min(b.maxX, base.x + 1 + (index % 3)), y: base.y };
 }
 
 export function stepAlongPath(

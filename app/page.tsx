@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { canRelocate, dailyGoalFor } from "./game/economy";
 import { LOCATION_ORDER, calendarFromDay, getLocation } from "./game/locations";
+import { isUnlockedCell, shopBounds } from "./game/pathfinding";
 import { createInitialState, loadSave, toolData, writeSave } from "./game/save";
 import RestaurantSceneClient from "./game/scene/RestaurantSceneClient";
 import {
@@ -158,6 +159,7 @@ export default function Home() {
   const activeFoodCount = game.dishes.filter((dish) => dish.kind === "food" && dish.onMenu).length;
   const activeDrinkCount = game.dishes.filter((dish) => dish.kind !== "food" && dish.onMenu).length;
   const dailyGoal = dailyGoalFor(game);
+  const currentBounds = shopBounds(game.expansionLevel);
   const runningProfit =
     game.revenue -
     game.dayIngredientCost -
@@ -230,6 +232,9 @@ export default function Home() {
   const clickCell = useCallback((x: number, y: number) => {
     setGame((g) => {
       if (g.speed) return { ...g, toast: "营业中不能改装，先暂停营业" };
+      if (!isUnlockedCell(x, y, g.expansionLevel)) {
+        return { ...g, toast: "这里还是扩建预留区，请先在布置面板扩建餐厅" };
+      }
       const existing = g.items.find((item) => item.x === x && item.y === y);
       if (tool === "erase") {
         if (!existing) return g;
@@ -257,6 +262,27 @@ export default function Home() {
       };
     });
   }, [tool]);
+
+  function expandRestaurant() {
+    setGame((g) => {
+      if (g.speed) return { ...g, toast: "扩建工程只能在筹备时间进行" };
+      if (g.expansionLevel >= 2) return { ...g, toast: "餐厅已扩至最大面积 16×12" };
+      const nextLevel = (g.expansionLevel + 1) as 1 | 2;
+      const price = nextLevel === 1 ? 35000 : 90000;
+      const requiredStars = nextLevel === 1 ? 2 : 4;
+      const nextSize = nextLevel === 1 ? "14×10" : "16×12";
+      if (g.stars < requiredStars) {
+        return { ...g, toast: `扩建至 ${nextSize} 需要 ${requiredStars}★` };
+      }
+      if (g.cash < price) return { ...g, toast: `扩建工程需要 ¥${price.toLocaleString()}` };
+      return {
+        ...g,
+        cash: g.cash - price,
+        expansionLevel: nextLevel,
+        toast: `扩建完成！可营业面积增加至 ${nextSize}`,
+      };
+    });
+  }
 
   function updateDish(
     index: number,
@@ -354,7 +380,13 @@ export default function Home() {
       return;
     }
     setGame((g) => {
-      const staff = createStaff(role, g.nextId, role === "chef" ? g.baseWage + 50 : g.baseWage, g.items);
+      const staff = createStaff(
+        role,
+        g.nextId,
+        role === "chef" ? g.baseWage + 50 : g.baseWage,
+        g.items,
+        g.expansionLevel,
+      );
       return {
         ...g,
         staff: [...g.staff, staff],
@@ -573,6 +605,7 @@ export default function Home() {
               wallStyle={game.atmosphere.wallStyle}
               entranceStyle={game.atmosphere.entranceStyle}
               showBubbles={game.settings.showBubbles}
+              expansionLevel={game.expansionLevel}
             />
             <div className="scene-titleplate" aria-hidden>
               <small>{location.name} · {location.sizeLabel}</small>
@@ -672,6 +705,9 @@ export default function Home() {
               料理台 <b>{kitchens}</b>
             </span>
             <span>
+              营业面积 <b>{currentBounds.width}×{currentBounds.height}</b>
+            </span>
+            <span>
               清洁 <b>{Math.round(game.atmosphere.cleanliness)}</b>
             </span>
             <span>
@@ -741,9 +777,27 @@ export default function Home() {
                 <span>01</span>
                 <div>
                   <h2>店内布置</h2>
-                  <p>先买小桌再买大桌——带位按购买顺序</p>
+                  <p>独立后厨、化粧室与可扩建营业面积</p>
                 </div>
               </div>
+              <section className="expansion-card">
+                <div>
+                  <small>当前可营业面积</small>
+                  <b>{currentBounds.width}×{currentBounds.height} 格</b>
+                  <span>第 {game.expansionLevel + 1} 阶段 · 外圈灰色地块尚未承租</span>
+                </div>
+                {game.expansionLevel < 2 ? (
+                  <button type="button" onClick={expandRestaurant}>
+                    扩建至 {game.expansionLevel === 0 ? "14×10" : "16×12"}
+                    <small>
+                      ¥{(game.expansionLevel === 0 ? 35000 : 90000).toLocaleString()} ·{" "}
+                      {game.expansionLevel === 0 ? 2 : 4}★
+                    </small>
+                  </button>
+                ) : (
+                  <strong>最大面积</strong>
+                )}
+              </section>
               <div className="tool-grid">
                 <button className={tool === "select" ? "selected" : ""} onClick={() => setTool("select")}>
                   <i>↖</i>
@@ -764,9 +818,9 @@ export default function Home() {
                 </button>
               </div>
               <div className="tip-card">
-                <b>一代规则</b>
+                <b>经典经营布局</b>
                 <p>
-                  带位顺序跟购买桌椅顺序走。先摆六人桌，一个人也会占大桌。卫生间影响清洁；厨房近处放高翻台桌。
+                  厨房与化粧室已经成为独立房间；带位仍按桌椅购买顺序。升星后逐圈扩建，再增加桌区和料理工位。
                 </p>
               </div>
             </>

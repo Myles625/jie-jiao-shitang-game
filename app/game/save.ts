@@ -32,15 +32,21 @@ export const toolData = {
 } as const;
 
 export const initialItems: CellItem[] = [
-  { id: 1, type: "kitchen", x: 1, y: 1, buyOrder: 1 },
-  { id: 2, type: "kitchen", x: 2, y: 1, buyOrder: 2 },
-  { id: 3, type: "cashier", x: 10, y: 6, buyOrder: 3 },
-  { id: 4, type: "toilet", x: 1, y: 6, buyOrder: 4 },
-  { id: 5, type: "table1", x: 4, y: 2, buyOrder: 5 },
-  { id: 6, type: "table2", x: 5, y: 2, buyOrder: 6 },
-  { id: 7, type: "table2", x: 4, y: 4, buyOrder: 7 },
-  { id: 8, type: "table4", x: 7, y: 2, buyOrder: 8 },
-  { id: 9, type: "plant", x: 9, y: 1, buyOrder: 9 },
+  // 后场厨房：三个真实工作位，位于独立料理间内
+  { id: 1, type: "kitchen", x: 3, y: 3, buyOrder: 1 },
+  { id: 2, type: "kitchen", x: 4, y: 3, buyOrder: 2 },
+  { id: 3, type: "kitchen", x: 5, y: 3, buyOrder: 3 },
+  // 卫生间在右后角独立房间，不再占据餐厅中央
+  { id: 4, type: "toilet", x: 12, y: 3, buyOrder: 4 },
+  // 前场结账与候位
+  { id: 5, type: "cashier", x: 8, y: 8, buyOrder: 5 },
+  // 中央与窗边用餐区
+  { id: 6, type: "table1", x: 7, y: 3, buyOrder: 6 },
+  { id: 7, type: "table2", x: 8, y: 4, buyOrder: 7 },
+  { id: 8, type: "table2", x: 10, y: 4, buyOrder: 8 },
+  { id: 9, type: "table4", x: 7, y: 6, buyOrder: 9 },
+  { id: 10, type: "table4", x: 10, y: 6, buyOrder: 10 },
+  { id: 11, type: "plant", x: 12, y: 7, buyOrder: 11 },
 ];
 
 /** 蓝宝石原创洋食菜单（气质对齐一代东京西餐厅，非原作菜名商标） */
@@ -169,6 +175,7 @@ export function createInitialState(): GameState {
     queueWalkouts: 0,
     serviceWalkouts: 0,
     maxQueue: 0,
+    expansionLevel: 0,
   };
 }
 
@@ -229,37 +236,46 @@ export function loadSave(): GameState | null {
   try {
     const s = JSON.parse(raw) as SaveState;
     const base = createInitialState();
+    const migrateLayout = (s.v ?? 0) < 6;
     const wage = s.baseWage ?? s.wage ?? 600;
-    const rawItems = (s.items ?? base.items).map((it, idx) => normalizeItem(it as CellItem, idx));
+    const rawItems = (migrateLayout ? base.items : (s.items ?? base.items)).map((it, idx) =>
+      normalizeItem(it as CellItem, idx),
+    );
+    const expansionLevel = migrateLayout ? 0 : (s.expansionLevel ?? 0);
 
     const staff: Staff[] = Array.isArray(s.staff) && s.staff.length
-      ? s.staff.map<Staff>((st) => ({
-          ...createStaff(st.role ?? "waiter", st.id, st.wage ?? wage, rawItems),
-          ...st,
-          path: [],
-          taskId: undefined,
-          onLeave: !!st.onLeave,
-          lowMoodDays: st.lowMoodDays ?? 0,
-          exp: st.exp ?? 0,
-          mood: st.mood ?? 70,
-          wage: st.wage ?? wage,
-          cleanInterval: st.cleanInterval ?? (st.role === "chef" ? 0 : 240),
-          lastCleanMinute: st.lastCleanMinute ?? 0,
-          speedStat: st.speedStat ?? 70,
-          receptionStat: st.receptionStat ?? 60,
-          charm: st.charm ?? 55,
-          learnRate: st.learnRate ?? 55,
-          endurance: st.endurance ?? 60,
-          cookSkill: st.cookSkill ?? (st.role === "chef" ? 65 : 20),
-        }))
+      ? s.staff.map<Staff>((st) => {
+          const spawned = createStaff(st.role ?? "waiter", st.id, st.wage ?? wage, rawItems, expansionLevel);
+          return {
+            ...spawned,
+            ...st,
+            x: migrateLayout ? spawned.x : st.x,
+            y: migrateLayout ? spawned.y : st.y,
+            path: [],
+            taskId: undefined,
+            onLeave: !!st.onLeave,
+            lowMoodDays: st.lowMoodDays ?? 0,
+            exp: st.exp ?? 0,
+            mood: st.mood ?? 70,
+            wage: st.wage ?? wage,
+            cleanInterval: st.cleanInterval ?? (st.role === "chef" ? 0 : 240),
+            lastCleanMinute: st.lastCleanMinute ?? 0,
+            speedStat: st.speedStat ?? 70,
+            receptionStat: st.receptionStat ?? 60,
+            charm: st.charm ?? 55,
+            learnRate: st.learnRate ?? 55,
+            endurance: st.endurance ?? 60,
+            cookSkill: st.cookSkill ?? (st.role === "chef" ? 65 : 20),
+          };
+        })
       : [];
 
     if (!staff.length) {
       const waiters = s.waiters ?? 2;
       const chefs = s.chefs ?? 1;
       let id = 100;
-      for (let i = 0; i < waiters; i++) staff.push(createStaff("waiter", id++, wage, rawItems));
-      for (let i = 0; i < chefs; i++) staff.push(createStaff("chef", id++, wage + 50, rawItems));
+      for (let i = 0; i < waiters; i++) staff.push(createStaff("waiter", id++, wage, rawItems, expansionLevel));
+      for (let i = 0; i < chefs; i++) staff.push(createStaff("chef", id++, wage + 50, rawItems, expansionLevel));
     }
 
     // 合并新增菜色：旧存档缺的菜补进列表；旧品牌菜名迁到新名
@@ -349,6 +365,7 @@ export function loadSave(): GameState | null {
       queueWalkouts: 0,
       serviceWalkouts: 0,
       maxQueue: 0,
+      expansionLevel,
     };
 
     // 从旧 key 读到后立刻写入新 key 并清理旧 key，避免丢档
@@ -392,6 +409,7 @@ export function writeSave(state: GameState): void {
     nextBuyOrder: state.nextBuyOrder,
     yearAwarded: state.yearAwarded,
     cookbookUnlocked: state.cookbookUnlocked,
+    expansionLevel: state.expansionLevel,
   };
   localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
 }

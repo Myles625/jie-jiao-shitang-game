@@ -13,7 +13,7 @@ import {
 import { rollDailyEvent } from "./events";
 import { calendarFromDay, getLocation, pickTaste } from "./locations";
 import { entranceCell, findPath, nearestStandSpot, queueCell, stepAlongPath } from "./pathfinding";
-import type { CellItem, DaySummary, GameState, Guest, Staff, Task, TaskKind, Vec2 } from "./types";
+import type { CellItem, DaySummary, ExpansionLevel, GameState, Guest, Staff, Task, TaskKind, Vec2 } from "./types";
 import { SECRET_DISH_NAME } from "./types";
 
 const TASK_PRIORITY: Record<TaskKind, number> = {
@@ -47,14 +47,21 @@ function cloneState(state: GameState): GameState {
   };
 }
 
-export function createStaff(role: "waiter" | "chef", id: number, wage: number, items: CellItem[]): Staff {
+export function createStaff(
+  role: "waiter" | "chef",
+  id: number,
+  wage: number,
+  items: CellItem[],
+  expansionLevel: ExpansionLevel = 0,
+): Staff {
   const names = role === "waiter" ? WAITER_NAMES : CHEF_NAMES;
   const name = names[id % names.length];
   const kitchen = items.find((i) => i.type === "kitchen");
   const start =
     role === "chef" && kitchen
-      ? (nearestStandSpot(items, entranceCell(), kitchen.x, kitchen.y) ?? entranceCell())
-      : entranceCell();
+      ? (nearestStandSpot(items, entranceCell(expansionLevel), kitchen.x, kitchen.y, expansionLevel) ??
+        entranceCell(expansionLevel))
+      : entranceCell(expansionLevel);
   return {
     id,
     name,
@@ -134,8 +141,13 @@ function moveEntity(items: CellItem[], ent: { x: number; y: number; path: Vec2[]
   ent.path = stepped.path;
 }
 
-function setPathTo(items: CellItem[], ent: { x: number; y: number; path: Vec2[] }, goal: Vec2): boolean {
-  const path = findPath(items, { x: ent.x, y: ent.y }, goal);
+function setPathTo(
+  items: CellItem[],
+  ent: { x: number; y: number; path: Vec2[] },
+  goal: Vec2,
+  expansionLevel: ExpansionLevel,
+): boolean {
+  const path = findPath(items, { x: ent.x, y: ent.y }, goal, { expansionLevel });
   ent.path = path;
   return path.length > 0 || Math.hypot(ent.x - goal.x, ent.y - goal.y) < 0.35;
 }
@@ -148,28 +160,39 @@ function arrived(ent: { x: number; y: number; path: Vec2[] }, goal?: Vec2 | null
 function taskTarget(state: GameState, task: Task): Vec2 | null {
   if (task.kind === "clean") {
     const toilet = state.items.find((i) => i.type === "toilet");
-    if (toilet) return nearestStandSpot(state.items, entranceCell(), toilet.x, toilet.y);
-    return entranceCell();
+    if (toilet) {
+      return nearestStandSpot(
+        state.items,
+        entranceCell(state.expansionLevel),
+        toilet.x,
+        toilet.y,
+        state.expansionLevel,
+      );
+    }
+    return entranceCell(state.expansionLevel);
   }
   const guest = guestAt(state, task.guestId);
   if (!guest) return null;
   const items = state.items;
 
-  if (task.kind === "seat") return queueCell(0);
+  if (task.kind === "seat") return queueCell(0, state.expansionLevel);
   if (task.kind === "takeOrder" || task.kind === "serve") {
     const table = items.find((i) => i.id === guest.tableId);
     if (!table) return null;
-    return nearestStandSpot(items, { x: guest.x, y: guest.y }, table.x, table.y);
+    return nearestStandSpot(items, { x: guest.x, y: guest.y }, table.x, table.y, state.expansionLevel);
   }
   if (task.kind === "deliverOrder" || task.kind === "cook") {
     const kitchen = items.find((i) => i.type === "kitchen");
     if (!kitchen) return null;
-    return nearestStandSpot(items, { x: guest.x, y: guest.y }, kitchen.x, kitchen.y);
+    return nearestStandSpot(items, { x: guest.x, y: guest.y }, kitchen.x, kitchen.y, state.expansionLevel);
   }
   if (task.kind === "checkout") {
     const cashier = items.find((i) => i.type === "cashier");
-    if (!cashier) return entranceCell();
-    return nearestStandSpot(items, { x: guest.x, y: guest.y }, cashier.x, cashier.y) ?? entranceCell();
+    if (!cashier) return entranceCell(state.expansionLevel);
+    return (
+      nearestStandSpot(items, { x: guest.x, y: guest.y }, cashier.x, cashier.y, state.expansionLevel) ??
+      entranceCell(state.expansionLevel)
+    );
   }
   return null;
 }
@@ -190,7 +213,7 @@ function assignTasks(state: GameState): void {
     const worker = candidates[0];
     if (!worker) continue;
     const target = taskTarget(state, task);
-    if (!target || !setPathTo(state.items, worker, target)) {
+    if (!target || !setPathTo(state.items, worker, target, state.expansionLevel)) {
       state.toast = "服务动线被家具挡住了，暂停后调整桌椅或设备";
       continue;
     }
@@ -234,8 +257,14 @@ function completeTask(state: GameState, task: Task, worker: Staff): void {
     guest.tableId = table.id;
     guest.stage = "seating";
     guest.taskQueued = false;
-    const seat = nearestStandSpot(state.items, { x: guest.x, y: guest.y }, table.x, table.y);
-    if (seat) setPathTo(state.items, guest, seat);
+    const seat = nearestStandSpot(
+      state.items,
+      { x: guest.x, y: guest.y },
+      table.x,
+      table.y,
+      state.expansionLevel,
+    );
+    if (seat) setPathTo(state.items, guest, seat, state.expansionLevel);
     else {
       guest.x = table.x;
       guest.y = table.y;
@@ -338,7 +367,7 @@ function finishGuest(state: GameState, guest: Guest): void {
   guest.stage = "leaving";
   guest.tableId = undefined;
   guest.taskQueued = false;
-  setPathTo(state.items, guest, entranceCell());
+  setPathTo(state.items, guest, entranceCell(state.expansionLevel), state.expansionLevel);
 }
 
 function wanderIdle(state: GameState, s: Staff): void {
@@ -346,14 +375,26 @@ function wanderIdle(state: GameState, s: Staff): void {
   if (s.role === "chef") {
     const kitchen = state.items.find((i) => i.type === "kitchen");
     if (!kitchen) return;
-    const spot = nearestStandSpot(state.items, { x: s.x, y: s.y }, kitchen.x, kitchen.y);
-    if (spot) setPathTo(state.items, s, spot);
+    const spot = nearestStandSpot(
+      state.items,
+      { x: s.x, y: s.y },
+      kitchen.x,
+      kitchen.y,
+      state.expansionLevel,
+    );
+    if (spot) setPathTo(state.items, s, spot, state.expansionLevel);
     return;
   }
   const tables = state.items.filter((i) => isTable(i.type));
-  const pick = Math.random() < 0.45 || !tables.length ? entranceCell() : tables[Math.floor(Math.random() * tables.length)];
-  const goal = "type" in pick ? nearestStandSpot(state.items, { x: s.x, y: s.y }, pick.x, pick.y) : pick;
-  if (goal) setPathTo(state.items, s, goal);
+  const pick =
+    Math.random() < 0.45 || !tables.length
+      ? entranceCell(state.expansionLevel)
+      : tables[Math.floor(Math.random() * tables.length)];
+  const goal =
+    "type" in pick
+      ? nearestStandSpot(state.items, { x: s.x, y: s.y }, pick.x, pick.y, state.expansionLevel)
+      : pick;
+  if (goal) setPathTo(state.items, s, goal, state.expansionLevel);
 }
 
 function maybeQueueClean(state: GameState): void {
@@ -395,7 +436,7 @@ function spawnGuest(state: GameState): void {
     memory = reg.memory;
   }
   const qIndex = state.guests.filter((g) => g.stage === "queue").length;
-  const pos = queueCell(qIndex);
+  const pos = queueCell(qIndex, state.expansionLevel);
   const budgetBase = (400 + size * 260 + Math.random() * 500) * loc.budgetMul;
   const diffPatience = difficulty === "easy" ? 12 : difficulty === "hard" ? -10 : 0;
   const patience =
@@ -460,7 +501,7 @@ function processStaffTasks(state: GameState, speed: number): void {
       continue;
     }
     if (!arrived(worker, target)) {
-      if (!worker.path.length && !setPathTo(state.items, worker, target)) {
+      if (!worker.path.length && !setPathTo(state.items, worker, target, state.expansionLevel)) {
         worker.taskId = undefined;
         task.assigneeId = undefined;
         state.toast = "服务动线被家具挡住了，暂停后调整桌椅或设备";
@@ -495,7 +536,7 @@ function advanceGuests(state: GameState, speed: number): void {
     moveEntity(state.items, guest, 0.7 * Math.max(1, speed));
 
     if (guest.stage === "leaving") {
-      if (arrived(guest, entranceCell()) || guest.path.length === 0) leaving.push(guest.id);
+      if (arrived(guest, entranceCell(state.expansionLevel)) || guest.path.length === 0) leaving.push(guest.id);
       continue;
     }
 
@@ -544,7 +585,7 @@ function advanceGuests(state: GameState, speed: number): void {
         for (const s of state.staff) {
           if (s.taskId && !state.tasks.some((t) => t.id === s.taskId)) s.taskId = undefined;
         }
-        setPathTo(state.items, guest, entranceCell());
+        setPathTo(state.items, guest, entranceCell(state.expansionLevel), state.expansionLevel);
       }
       continue;
     }
@@ -559,8 +600,14 @@ function advanceGuests(state: GameState, speed: number): void {
         guest.taskQueued = false;
         const cashier = state.items.find((i) => i.type === "cashier");
         if (cashier) {
-          const spot = nearestStandSpot(state.items, { x: guest.x, y: guest.y }, cashier.x, cashier.y);
-          if (spot) setPathTo(state.items, guest, spot);
+          const spot = nearestStandSpot(
+            state.items,
+            { x: guest.x, y: guest.y },
+            cashier.x,
+            cashier.y,
+            state.expansionLevel,
+          );
+          if (spot) setPathTo(state.items, guest, spot, state.expansionLevel);
         }
         ensureTask(state, "checkout", guest.id);
         guest.taskQueued = true;
@@ -758,7 +805,7 @@ export function relocate(state: GameState, targetId: string): GameState {
   next.tasks = [];
   next.toast = `迁店成功：${loc.name} · ${loc.sizeLabel}`;
   for (const s of next.staff) {
-    const e = entranceCell();
+    const e = entranceCell(next.expansionLevel);
     s.x = e.x;
     s.y = e.y;
     s.path = [];

@@ -38,13 +38,15 @@ test("server-renders 蓝宝石餐厅 game shell", async () => {
 });
 
 test("game modules and page wire GameState simulation + R3F scene", async () => {
-  const [page, types, simulation, save, css, scene, pkg] = await Promise.all([
+  const [page, types, simulation, save, css, scene, characters, building, pkg] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/game/types.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/game/simulation.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/game/save.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
     readFile(new URL("../app/game/scene/RestaurantScene.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/scene/characters.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/game/scene/building.tsx", import.meta.url), "utf8"),
     readFile(new URL("../package.json", import.meta.url), "utf8"),
   ]);
 
@@ -80,6 +82,10 @@ test("game modules and page wire GameState simulation + R3F scene", async () => 
   assert.match(scene, /castShadow|OrbitControls/);
   assert.match(scene, /className="r3f-stage/);
   assert.match(scene, /floorStyle|wallStyle|showBubbles/);
+  assert.match(scene, /expansionLevel/);
+  assert.match(characters, /staff-walk-atlas\.png|guest-walk-atlas\.png/);
+  assert.match(characters, /AnimatedPersonSprite|WALK_COLUMNS/);
+  assert.match(building, /料理间|化粧室|扩建预留区|ServiceRooms/);
   assert.match(pkg, /"@react-three\/fiber"/);
   assert.match(pkg, /"three"/);
 });

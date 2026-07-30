@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { computeDayCosts, dailyGoalFor } from "../app/game/economy";
 import { createInitialState } from "../app/game/save";
+import { entranceCell, findPath, isUnlockedCell, shopBounds } from "../app/game/pathfinding";
 import { closeDay, tick } from "../app/game/simulation";
 
 function withSeed<T>(seed: number, run: () => T): T {
@@ -81,4 +82,23 @@ test("达成每日经营目标会获得额外奖金", () => {
   assert.equal(summary.goalProfitTarget, goal.profitTarget);
   assert.equal(summary.goalBonus, goal.bonus);
   assert.ok(closed.totalProfit > summary.profit);
+});
+
+test("餐厅面积按 12×8、14×10、16×12 逐级开放", () => {
+  assert.deepEqual(
+    [shopBounds(0).width, shopBounds(0).height, shopBounds(1).width, shopBounds(1).height, shopBounds(2).width, shopBounds(2).height],
+    [12, 8, 14, 10, 16, 12],
+  );
+  assert.equal(isUnlockedCell(1, 1, 0), false);
+  assert.equal(isUnlockedCell(1, 1, 1), true);
+  assert.equal(isUnlockedCell(0, 0, 1), false);
+  assert.equal(isUnlockedCell(0, 0, 2), true);
+});
+
+test("寻路和入口会随扩建边界外移", () => {
+  const state = createInitialState();
+  assert.deepEqual(entranceCell(0), { x: 8, y: 9 });
+  assert.deepEqual(entranceCell(2), { x: 8, y: 11 });
+  assert.equal(findPath(state.items, entranceCell(0), { x: 1, y: 1 }, { expansionLevel: 0 }).length, 0);
+  assert.ok(findPath(state.items, entranceCell(2), { x: 1, y: 1 }, { expansionLevel: 2 }).length > 0);
 });

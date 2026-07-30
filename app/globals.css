@@ -3055,3 +3055,42 @@ select:focus-visible {
     grid-template-columns: 1fr;
   }
 }
+
+.expansion-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items: center;
+  margin: 0 0 14px;
+  padding: 13px;
+  border: 1px solid #b99757;
+  background: linear-gradient(135deg, rgba(255,255,255,.7), transparent 55%), #eee0b7;
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.42);
+}
+.expansion-card > div { display: grid; gap: 3px; }
+.expansion-card small { color: #75664b; font: 700 9px/1.2 monospace; }
+.expansion-card b { color: #243f34; font: 900 19px/1.15 "Songti SC", serif; }
+.expansion-card span { color: #75664b; font-size: 9px; }
+.expansion-card button {
+  min-width: 112px;
+  padding: 10px 12px;
+  border: 1px solid #1f4938;
+  background: #2e644d;
+  color: #fff8df;
+  font: 800 11px/1.2 serif;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 2px rgba(255,255,255,.12), 2px 2px 0 #183426;
+}
+.expansion-card button:hover { transform: translateY(-1px); background: #39775d; }
+.expansion-card button small {
+  display: block;
+  margin-top: 4px;
+  color: #f2d78d;
+  font-size: 8px;
+}
+.expansion-card > strong {
+  padding: 8px 10px;
+  border: 1px solid #8a7a58;
+  color: #6b6048;
+  font-size: 10px;
+}

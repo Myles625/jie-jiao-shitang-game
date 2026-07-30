@@ -3,7 +3,17 @@
 import { OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
 import { memo, Suspense, useLayoutEffect, useMemo } from "react";
-import type { CellItem, EntranceStyle, FloorStyle, Guest, Staff, Task, Tool, WallStyle } from "../types";
+import type {
+  CellItem,
+  EntranceStyle,
+  ExpansionLevel,
+  FloorStyle,
+  Guest,
+  Staff,
+  Task,
+  Tool,
+  WallStyle,
+} from "../types";
 import { BuildingShell } from "./building";
 import { ActorsLayer } from "./characters";
 import { DecorProps, FurnitureLayer } from "./furniture";
@@ -29,6 +39,7 @@ export type SceneProps = {
   wallStyle?: WallStyle;
   entranceStyle?: EntranceStyle;
   showBubbles?: boolean;
+  expansionLevel: ExpansionLevel;
 };
 
 const Lights = memo(function Lights() {
@@ -92,6 +103,7 @@ function World({
   wallStyle = "cream",
   entranceStyle = "classic",
   showBubbles = true,
+  expansionLevel,
 }: SceneProps) {
   const foodById = useMemo(() => {
     const m = new Map<number, ReturnType<typeof tableFoodFor>>();
@@ -128,6 +140,7 @@ function World({
           floorStyle={floorStyle}
           wallStyle={wallStyle}
           entranceStyle={entranceStyle}
+          expansionLevel={expansionLevel}
         />
         <DecorProps />
       </>
@@ -140,6 +153,7 @@ function World({
       onCellClick,
       restaurantName,
       wallStyle,
+      expansionLevel,
     ],
   );
 

@@ -3,9 +3,10 @@
 import { useFrame } from "@react-three/fiber";
 import { useMemo, useRef, type ReactNode } from "react";
 import * as THREE from "three";
-import { H, W, type EntranceStyle, type FloorStyle, type WallStyle } from "../types";
+import { H, W, type EntranceStyle, type ExpansionLevel, type FloorStyle, type WallStyle } from "../types";
+import { isUnlockedCell, shopBounds } from "../pathfinding";
 import { CELL, gridToWorld, isKitchenZone, ROOM } from "./coords";
-import { KanbanPlane, ShopSignPlane } from "./labels";
+import { KanbanPlane, ShopSignPlane, SpriteLabel } from "./labels";
 
 function nearestTex(draw: (ctx: CanvasRenderingContext2D, s: number) => void, size = 64) {
   const c = document.createElement("canvas");
@@ -108,10 +109,12 @@ function FloorTiles({
   buildable,
   onCellClick,
   floorStyle,
+  expansionLevel,
 }: {
   buildable: boolean;
   onCellClick: (x: number, y: number) => void;
   floorStyle: FloorStyle;
+  expansionLevel: ExpansionLevel;
 }) {
   const wood = useMemo(() => makeWoodTexture(), []);
   const tile = useMemo(() => makeTileTexture(), []);
@@ -158,11 +161,19 @@ function FloorTiles({
           <meshStandardMaterial map={wood} roughness={0.9} />
         )}
       </mesh>
-      {/* kitchen tile overlay */}
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[gridToWorld(1.5, 1).x, 0.008, gridToWorld(1.5, 1).z]} receiveShadow>
-        <planeGeometry args={[4.05, 3.05]} />
-        <meshStandardMaterial map={tile} roughness={0.7} />
-      </mesh>
+      {/* 尚未承租的外圈会在扩建后逐层开放 */}
+      {Array.from({ length: W * H }, (_, n) => {
+        const x = n % W;
+        const y = Math.floor(n / W);
+        if (isUnlockedCell(x, y, expansionLevel)) return null;
+        const p = gridToWorld(x, y);
+        return (
+          <mesh key={`locked-${n}`} rotation={[-Math.PI / 2, 0, 0]} position={[p.x, 0.012, p.z]}>
+            <planeGeometry args={[0.96, 0.96]} />
+            <meshStandardMaterial color={(x + y) % 2 ? "#5f6a6e" : "#738086"} roughness={0.98} />
+          </mesh>
+        );
+      })}
       {/* baseboard ring hint */}
       <mesh position={[0, 0.04, -ROOM.d / 2 + 0.14]}>
         <boxGeometry args={[ROOM.w - 0.2, 0.08, 0.06]} />
@@ -173,7 +184,8 @@ function FloorTiles({
           const x = n % W;
           const y = Math.floor(n / W);
           const p = gridToWorld(x, y);
-          const kit = isKitchenZone(x, y);
+          const unlocked = isUnlockedCell(x, y, expansionLevel);
+          const kit = unlocked && isKitchenZone(x, y);
           return (
             <mesh
               key={n}
@@ -186,14 +198,180 @@ function FloorTiles({
             >
               <planeGeometry args={[0.92, 0.92]} />
               <meshStandardMaterial
-                color={kit ? "#a8c8d8" : "#d4c48a"}
+                color={!unlocked ? "#c35a45" : kit ? "#a8c8d8" : "#d4c48a"}
                 transparent
-                opacity={0.22}
+                opacity={unlocked ? 0.22 : 0.42}
                 depthWrite={false}
               />
             </mesh>
           );
         })}
+    </group>
+  );
+}
+
+function PartitionWall({
+  position,
+  size,
+  color = "#d9c8a5",
+}: {
+  position: [number, number, number];
+  size: [number, number, number];
+  color?: string;
+}) {
+  return (
+    <group position={position}>
+      <mesh castShadow receiveShadow>
+        <boxGeometry args={size} />
+        <meshStandardMaterial color={color} roughness={0.84} flatShading />
+      </mesh>
+      <mesh position={[0, size[1] / 2 + 0.035, 0]}>
+        <boxGeometry args={[size[0] + 0.05, 0.07, size[2] + 0.05]} />
+        <meshStandardMaterial color="#6b4930" roughness={0.78} />
+      </mesh>
+    </group>
+  );
+}
+
+/** 后场料理间与右后角化粧室是固定建筑分区，家具只决定其中的可用工位。 */
+function ServiceRooms({ expansionLevel }: { expansionLevel: ExpansionLevel }) {
+  const kitchenCenter = gridToWorld(3.5, 3);
+  const toiletCenter = gridToWorld(12, 3);
+  const bounds = shopBounds(expansionLevel);
+  const sideX = gridToWorld(bounds.minX - 0.48, bounds.minY).x;
+  const rightX = gridToWorld(bounds.maxX + 0.48, bounds.minY).x;
+  const rearZ = gridToWorld(bounds.minX, bounds.minY - 0.48).z;
+  const frontZ = gridToWorld(bounds.minX, bounds.maxY + 0.48).z;
+  const activeW = bounds.width;
+  const activeD = bounds.height;
+
+  return (
+    <group>
+      {/* 料理间防滑砖地 */}
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[kitchenCenter.x, 0.018, kitchenCenter.z]}
+        receiveShadow
+      >
+        <planeGeometry args={[4.05, 3.05]} />
+        <meshStandardMaterial color="#b9c6c7" roughness={0.72} />
+      </mesh>
+      <PartitionWall
+        position={[gridToWorld(3.5, 1.52).x, 0.62, gridToWorld(3.5, 1.52).z]}
+        size={[4.1, 1.24, 0.12]}
+      />
+      <PartitionWall
+        position={[gridToWorld(1.52, 3).x, 0.62, gridToWorld(1.52, 3).z]}
+        size={[0.12, 1.24, 3.05]}
+      />
+      <PartitionWall
+        position={[gridToWorld(5.48, 2.75).x, 0.62, gridToWorld(5.48, 2.75).z]}
+        size={[0.12, 1.24, 1.55]}
+      />
+      {/* 冰箱、洗涤池、吊架和抽油烟罩，让料理台读成厨房而非一张小桌 */}
+      <group position={[gridToWorld(2.15, 2.35).x, 0, gridToWorld(2.15, 2.35).z]}>
+        <mesh position={[0, 0.72, 0]} castShadow>
+          <boxGeometry args={[0.68, 1.44, 0.68]} />
+          <meshStandardMaterial color="#d9e1df" metalness={0.28} roughness={0.45} />
+        </mesh>
+        <mesh position={[0.25, 0.72, 0.35]}>
+          <boxGeometry args={[0.035, 0.35, 0.04]} />
+          <meshStandardMaterial color="#4b5557" metalness={0.8} />
+        </mesh>
+      </group>
+      <group position={[gridToWorld(2.25, 4.05).x, 0, gridToWorld(2.25, 4.05).z]}>
+        <mesh position={[0, 0.38, 0]} castShadow>
+          <boxGeometry args={[0.72, 0.76, 0.58]} />
+          <meshStandardMaterial color="#7d898a" metalness={0.45} roughness={0.35} />
+        </mesh>
+        <mesh position={[0, 0.78, 0]}>
+          <boxGeometry args={[0.62, 0.07, 0.48]} />
+          <meshStandardMaterial color="#b9c4c4" metalness={0.55} roughness={0.25} />
+        </mesh>
+        <mesh position={[0, 0.83, 0]}>
+          <torusGeometry args={[0.14, 0.025, 8, 18, Math.PI]} />
+          <meshStandardMaterial color="#384447" metalness={0.7} />
+        </mesh>
+      </group>
+      <mesh position={[gridToWorld(4, 2.25).x, 1.48, gridToWorld(4, 2.25).z]} castShadow>
+        <boxGeometry args={[2.2, 0.3, 0.72]} />
+        <meshStandardMaterial color="#6f7b7c" metalness={0.58} roughness={0.32} />
+      </mesh>
+      <mesh position={[gridToWorld(4, 2.25).x, 1.18, gridToWorld(4, 2.25).z]} castShadow>
+        <cylinderGeometry args={[0.24, 0.42, 0.5, 4]} />
+        <meshStandardMaterial color="#566163" metalness={0.48} roughness={0.38} />
+      </mesh>
+      <SpriteLabel
+        kind="bubble"
+        text="料理间"
+        position={[gridToWorld(4.7, 2.1).x, 1.52, gridToWorld(4.7, 2.1).z]}
+        scale={[1.05, 0.32, 1]}
+      />
+
+      {/* 化粧室：专用瓷砖、隔墙、洗手盆与门牌 */}
+      <mesh
+        rotation={[-Math.PI / 2, 0, 0]}
+        position={[toiletCenter.x, 0.019, toiletCenter.z]}
+        receiveShadow
+      >
+        <planeGeometry args={[3.05, 3.05]} />
+        <meshStandardMaterial color="#a9c7cf" roughness={0.66} />
+      </mesh>
+      <PartitionWall
+        position={[gridToWorld(10.52, 3).x, 0.72, gridToWorld(10.52, 3).z]}
+        size={[0.12, 1.44, 3.05]}
+        color="#c8d7d7"
+      />
+      <PartitionWall
+        position={[gridToWorld(12, 1.52).x, 0.72, gridToWorld(12, 1.52).z]}
+        size={[3.05, 1.44, 0.12]}
+        color="#c8d7d7"
+      />
+      <PartitionWall
+        position={[gridToWorld(11.25, 4.48).x, 0.72, gridToWorld(11.25, 4.48).z]}
+        size={[1.48, 1.44, 0.12]}
+        color="#c8d7d7"
+      />
+      <group position={[gridToWorld(11.1, 2.35).x, 0, gridToWorld(11.1, 2.35).z]}>
+        <mesh position={[0, 0.42, 0]} castShadow>
+          <boxGeometry args={[0.58, 0.32, 0.42]} />
+          <meshStandardMaterial color="#eef1e8" roughness={0.35} />
+        </mesh>
+        <mesh position={[0, 0.64, -0.14]}>
+          <boxGeometry args={[0.08, 0.38, 0.08]} />
+          <meshStandardMaterial color="#778284" metalness={0.65} roughness={0.25} />
+        </mesh>
+      </group>
+      <SpriteLabel
+        kind="bubble"
+        text="化粧室"
+        position={[gridToWorld(12.7, 4.25).x, 1.55, gridToWorld(12.7, 4.25).z]}
+        scale={[1.05, 0.32, 1]}
+      />
+
+      {/* 当前承租边界；扩建后围挡实际外移，而不是只改一个数字 */}
+      {expansionLevel < 2 ? (
+        <>
+          <mesh position={[sideX, 0.16, (rearZ + frontZ) / 2]} castShadow>
+            <boxGeometry args={[0.16, 0.32, activeD + 0.1]} />
+            <meshStandardMaterial color="#d49b3d" roughness={0.82} />
+          </mesh>
+          <mesh position={[rightX, 0.16, (rearZ + frontZ) / 2]} castShadow>
+            <boxGeometry args={[0.16, 0.32, activeD + 0.1]} />
+            <meshStandardMaterial color="#d49b3d" roughness={0.82} />
+          </mesh>
+          <mesh position={[(sideX + rightX) / 2, 0.16, rearZ]} castShadow>
+            <boxGeometry args={[activeW + 0.1, 0.32, 0.16]} />
+            <meshStandardMaterial color="#d49b3d" roughness={0.82} />
+          </mesh>
+          <SpriteLabel
+            kind="bubble"
+            text={`扩建预留区 ${bounds.width}×${bounds.height}`}
+            position={[sideX - 0.35, 0.72, rearZ + 0.65]}
+            scale={[1.65, 0.42, 1]}
+          />
+        </>
+      ) : null}
     </group>
   );
 }
@@ -814,6 +992,7 @@ export function BuildingShell({
   floorStyle = "wood",
   wallStyle = "cream",
   entranceStyle = "classic",
+  expansionLevel,
 }: {
   locationLabel: string;
   restaurantName: string;
@@ -822,10 +1001,17 @@ export function BuildingShell({
   floorStyle?: FloorStyle;
   wallStyle?: WallStyle;
   entranceStyle?: EntranceStyle;
+  expansionLevel: ExpansionLevel;
 }) {
   return (
     <group>
-      <FloorTiles buildable={buildable} onCellClick={onCellClick} floorStyle={floorStyle} />
+      <FloorTiles
+        buildable={buildable}
+        onCellClick={onCellClick}
+        floorStyle={floorStyle}
+        expansionLevel={expansionLevel}
+      />
+      <ServiceRooms expansionLevel={expansionLevel} />
       <CutawayBuilding
         locationLabel={locationLabel}
         restaurantName={restaurantName}

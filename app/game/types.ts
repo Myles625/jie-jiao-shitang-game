@@ -1,9 +1,10 @@
-export const W = 12;
-export const H = 8;
+/** 最大可扩建面积；新店从中间的 12×8 区域起步。 */
+export const W = 16;
+export const H = 12;
 export const SAVE_KEY = "sapphire-restaurant-save";
 /** 旧品牌存档 key，读取时迁移一次 */
 export const LEGACY_SAVE_KEY = "corner-bistro-save";
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 export const DEFAULT_RESTAURANT_NAME = "蓝宝石餐厅";
 export const SECRET_DISH_NAME = "蓝宝石秘传锅";
 
@@ -27,6 +28,7 @@ export type FloorStyle = "wood" | "tile" | "carpet";
 export type WallStyle = "cream" | "brick" | "panel";
 export type EntranceStyle = "classic" | "glass" | "lattice";
 export type Difficulty = "easy" | "normal" | "hard";
+export type ExpansionLevel = 0 | 1 | 2;
 
 /** 对齐一代「一般设定」：营业时段、定休、音量、难度、显示 */
 export type GameSettings = {
@@ -282,6 +284,8 @@ export type GameState = {
   serviceWalkouts: number;
   /** 今日同时排队的最高组数 */
   maxQueue: number;
+  /** 0=12×8，1=14×10，2=16×12 */
+  expansionLevel: ExpansionLevel;
 };
 
 export type PersistedStaff = Omit<Staff, "path" | "taskId">;
@@ -311,4 +315,5 @@ export type SaveState = {
   waiters?: number;
   chefs?: number;
   wage?: number;
+  expansionLevel?: ExpansionLevel;
 };
