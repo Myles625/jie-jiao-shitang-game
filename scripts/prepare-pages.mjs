@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const outDir = path.join(root, "dist", "client");
-const basePath = (process.env.BASE_PATH || "/jie-jiao-shitang-game").replace(
+const basePath = (process.env.BASE_PATH || "/sapphire-restaurant").replace(
   /\/$/,
   "",
 );
