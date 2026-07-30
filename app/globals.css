@@ -158,6 +158,21 @@ button { color: inherit; }
     radial-gradient(ellipse at 30% 20%, rgba(255, 230, 170, 0.2), transparent 50%),
     linear-gradient(180deg, #6a9ab0, #8a8070);
 }
+.r3f-error {
+  align-content: center;
+  gap: 10px;
+  background: radial-gradient(circle, #e8c98d 0, #b87558 70%, #885041 100%);
+}
+.r3f-error p { margin: 0; color: #4c2d23; font: 800 16px/1.4 "Songti SC", serif; }
+.r3f-error button {
+  justify-self: center;
+  border: 3px double #70442f;
+  background: #fff0c4;
+  color: #4c2d23;
+  padding: 9px 16px;
+  font: 800 11px/1 "Songti SC", serif;
+  cursor: pointer;
+}
 .scene-hint {
   position: absolute;
   right: 10px;

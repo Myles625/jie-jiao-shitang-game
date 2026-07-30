@@ -2,7 +2,7 @@
 
 import { OrbitControls } from "@react-three/drei";
 import { Canvas, useThree } from "@react-three/fiber";
-import { memo, Suspense, useLayoutEffect, useMemo } from "react";
+import { memo, useLayoutEffect, useMemo } from "react";
 import type {
   CellItem,
   EntranceStyle,
@@ -193,9 +193,7 @@ export default function RestaurantScene(props: SceneProps) {
           camera.updateProjectionMatrix();
         }}
       >
-        <Suspense fallback={null}>
-          <World {...props} />
-        </Suspense>
+        <World {...props} />
       </Canvas>
       <div className="scene-hint" aria-hidden>
         拖拽旋转 · 滚轮缩放
