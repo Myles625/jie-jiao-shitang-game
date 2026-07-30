@@ -92,6 +92,7 @@ test("game modules and page wire GameState simulation + R3F scene", async () => 
   assert.match(characters, /staff-walk-atlas\.png|guest-walk-atlas\.png/);
   assert.match(characters, /AnimatedPersonSprite|WALK_SEQUENCE|WALK_FPS|walkTail/);
   assert.match(characters, /depthTest=\{false\}/);
+  assert.match(characters, /Billboard|DoubleSide|frustumCulled=\{false\}/);
   assert.match(building, /料理间|化粧室|扩建预留区|实体门|ServiceRooms/);
   assert.match(furniture, /真正的坐便器|torusGeometry|水箱/);
   assert.match(simulation, /setPathThroughEntrance|setExitPath|entranceOutsideCell/);

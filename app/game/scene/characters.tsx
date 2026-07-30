@@ -1,8 +1,10 @@
 "use client";
 
+import { Billboard } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import {
+  DoubleSide,
   LinearFilter,
   NearestFilter,
   RepeatWrapping,
@@ -118,13 +120,17 @@ function AnimatedPersonSprite({
     const frame = moving
       ? WALK_SEQUENCE[Math.floor(walkRef.current.phase * WALK_FPS) % WALK_SEQUENCE.length]
       : 1;
-    texture.offset.set(frame / WALK_COLUMNS, 1 - (safeRow + 1) / rows);
+    const facingLeft = walkRef.current.facing < 0;
+    texture.repeat.set((facingLeft ? -1 : 1) / WALK_COLUMNS, 1 / rows);
+    texture.offset.set(
+      facingLeft ? (frame + 1) / WALK_COLUMNS : frame / WALK_COLUMNS,
+      1 - (safeRow + 1) / rows,
+    );
     if (sprite.current) {
       const stride = Math.sin(walkRef.current.phase * Math.PI * 4);
       const bob = moving ? Math.abs(stride) * 0.055 : 0;
       sprite.current.position.y = (seated ? 0.66 : 0.76) + bob;
       sprite.current.rotation.z = moving ? stride * 0.025 : 0;
-      sprite.current.scale.x = walkRef.current.facing;
     }
   });
 
@@ -139,16 +145,20 @@ function AnimatedPersonSprite({
       </mesh>
       <group ref={sprite} position={[0, seated ? 0.66 : 0.76, 0]}>
         {texture ? (
-          <sprite scale={[width, height, 1]} renderOrder={4}>
-            <spriteMaterial
-              map={texture}
-              transparent
-              alphaTest={0.08}
-              depthTest={false}
-              depthWrite={false}
-              toneMapped={false}
-            />
-          </sprite>
+          <Billboard follow>
+            <mesh scale={[width, height, 1]} renderOrder={10} frustumCulled={false}>
+              <planeGeometry args={[1, 1]} />
+              <meshBasicMaterial
+                map={texture}
+                transparent
+                alphaTest={0.08}
+                depthTest={false}
+                depthWrite={false}
+                side={DoubleSide}
+                toneMapped={false}
+              />
+            </mesh>
+          </Billboard>
         ) : null}
         {texture && carrying && !seated ? (
           <group position={[0.34, -0.06, 0.08]}>
