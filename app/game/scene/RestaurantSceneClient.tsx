@@ -1,7 +1,17 @@
 "use client";
 
-import { Component, Fragment, type ErrorInfo, type ReactNode } from "react";
+import {
+  Component,
+  Fragment,
+  useSyncExternalStore,
+  type ErrorInfo,
+  type ReactNode,
+} from "react";
 import RestaurantScene, { type SceneProps } from "./RestaurantScene";
+
+const subscribeToClient = () => () => {};
+const getClientSnapshot = () => true;
+const getServerSnapshot = () => false;
 
 class SceneErrorBoundary extends Component<
   { children: ReactNode },
@@ -35,6 +45,20 @@ class SceneErrorBoundary extends Component<
 }
 
 export default function RestaurantSceneClient(props: SceneProps) {
+  const mounted = useSyncExternalStore(
+    subscribeToClient,
+    getClientSnapshot,
+    getServerSnapshot,
+  );
+
+  if (!mounted) {
+    return (
+      <div className="r3f-stage iso-world r3f-loading" aria-label="餐厅场景准备中">
+        <p>正在准备蓝宝石餐厅…</p>
+      </div>
+    );
+  }
+
   return (
     <SceneErrorBoundary>
       <RestaurantScene {...props} />

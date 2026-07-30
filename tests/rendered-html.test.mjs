@@ -87,6 +87,7 @@ test("game modules and page wire GameState simulation + R3F scene", async () => 
   assert.match(scene, /expansionLevel/);
   assert.match(sceneClient, /import RestaurantScene/);
   assert.match(sceneClient, /SceneErrorBoundary|重新载入场景/);
+  assert.match(sceneClient, /useSyncExternalStore|getServerSnapshot/);
   assert.doesNotMatch(sceneClient, /next\/dynamic|正在装载蓝宝石餐厅场景/);
   assert.match(characters, /staff-walk-atlas\.png|guest-walk-atlas\.png/);
   assert.match(characters, /AnimatedPersonSprite|WALK_SEQUENCE|WALK_FPS|walkTail/);
